@@ -1,0 +1,103 @@
+{
+  "playMode": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Interactive Play mode (shows controls; needs Lively mouse input)"
+  },
+  "windStrength": {
+    "type": "slider",
+    "value": 25,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "tick": 10,
+    "text": "Wind strength"
+  },
+  "timeMode": {
+    "type": "dropdown",
+    "value": 2,
+    "text": "Time of day",
+    "items": [
+      "Fixed afternoon",
+      "Accelerated day cycle",
+      "Follow PC clock"
+    ]
+  },
+  "rain": {
+    "type": "slider",
+    "value": 0,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "tick": 10,
+    "text": "Rain"
+  },
+  "tide": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Tide cycle (sea level rises and falls)"
+  },
+  "waterColor": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Water color",
+    "items": [
+      "Tropical Turquoise",
+      "Lagoon Blue",
+      "Deep Ocean Blue",
+      "Sea Glass Green",
+      "Warm Sunset",
+      "Custom"
+    ]
+  },
+  "customColor": {
+    "type": "color",
+    "value": "#22B8C8",
+    "text": "Custom water color (select 'Custom' above)"
+  },
+  "language": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Language for notes & mini games / 语言",
+    "items": [
+      "Auto (system)",
+      "中文",
+      "English"
+    ]
+  },
+  "oceanMail": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Ocean Mail (a rare drifting bottle with a note)"
+  },
+  "surprises": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Ocean Surprises (rare small events)"
+  },
+  "surpriseFrequency": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "How often",
+    "items": [
+      "Rare",
+      "Normal",
+      "Often"
+    ]
+  },
+  "quality": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Quality",
+    "items": [
+      "Auto",
+      "High",
+      "Low (battery saver)"
+    ]
+  },
+  "resetWorld": {
+    "type": "button",
+    "value": "Reset",
+    "text": "Reset world"
+  }
+}
