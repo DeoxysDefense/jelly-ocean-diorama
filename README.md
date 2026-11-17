@@ -4,8 +4,6 @@
 
 **Version 1.0** — first public release.
 
-Continuing development? Start with [docs/V2_HANDOFF.md](docs/V2_HANDOFF.md).
-
 **Use it three ways:** as an interactive **desktop wallpaper** (Lively Wallpaper), as a
 **desktop app** that opens in its own window from a shortcut, or in any browser.
 
