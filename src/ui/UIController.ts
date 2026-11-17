@@ -140,7 +140,8 @@ export class UIController {
   }
 
   private range(attr: string, label: string, min: number, max: number, step: number) {
-    return `<div class="prop"><div class="field-label"><span>${label}</span><span class="value" data-out="${attr}"></span></div>
+    // the label key must not contain quotes (attr looks like data-env="time")
+    return `<div class="prop"><div class="field-label"><span>${label}</span><span class="value" data-out="${attr.replace(/["']/g, '')}"></span></div>
       <input class="range" type="range" min="${min}" max="${max}" step="${step}" ${attr} aria-label="${label}"></div>`;
   }
 
@@ -464,7 +465,7 @@ export class UIController {
     if (document.activeElement !== inp) inp.value = String(value);
     inp.style.setProperty('--fill', `${((value - min) / (max - min)) * 100}%`);
     const attr = sel.slice(1, -1);
-    const out = this.root.querySelector(`[data-out='${attr}']`) as HTMLElement | null;
+    const out = this.root.querySelector(`[data-out="${attr.replace(/["']/g, '')}"]`) as HTMLElement | null;
     if (out) out.textContent = text;
   }
 

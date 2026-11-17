@@ -46,6 +46,19 @@ export class WallpaperAdapter {
     const mode = q.get('mode');
     if (mode === 'ambient' || mode === 'play') app.tools.setMode(mode);
     else if (this.isHost) app.tools.setMode('ambient');
+
+    // Presentation flags (screenshots, shared links): ?time=14.5 ?view=top ?panel=0 ?tab=nature
+    const time = Number(q.get('time'));
+    if (q.has('time') && Number.isFinite(time)) {
+      app.env.setTimeMode('manual');
+      app.env.setTime(((time % 24) + 24) % 24);
+    }
+    const view = q.get('view');
+    if (view === 'top' || view === 'front') app.cam.setView(view, true);
+    const tab = q.get('tab');
+    if (tab === 'interact' || tab === 'create' || tab === 'life' || tab === 'nature' || tab === 'world') app.tools.setTab(tab);
+    if (q.get('panel') === '0') app.ui?.setCollapsed(true);
+    else if (q.get('panel') === '1') app.ui?.setCollapsed(false);
   }
 
   setPaused(p: boolean) {

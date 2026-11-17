@@ -15,6 +15,16 @@ first as a browser app and packaged as a **Windows interactive wallpaper for Liv
 Everything — models, textures, animation — is generated procedurally in code (see
 [ASSETS.md](ASSETS.md)); there are no binary assets to download.
 
+## Preview
+
+![Jelly Ocean Diorama — Front View in the afternoon](docs/images/preview-front.jpg)
+
+| Dusk: lit hut, glowing jellyfish | Top View: the whole reef for editing | Ocean Studio panel |
+|:---:|:---:|:---:|
+| ![Dusk](docs/images/preview-dusk.jpg) | ![Top View](docs/images/preview-top.jpg) | ![Ocean Studio panel](docs/images/preview-panel.jpg) |
+
+*Real in-app captures (1600×900). Every frame is rendered live — the water, fish and plants keep moving.*
+
 ## Quick start
 
 Requirements: Node.js 18+ (tested with Node 22) and a browser with WebGL2.
@@ -39,7 +49,9 @@ Open http://127.0.0.1:5173.
 | `npm run typecheck` | TypeScript only |
 | `npm run package:lively` | Single-file wallpaper build in `dist-lively/` + `JellyOcean-Lively.zip` |
 
-URL flags: `?mode=ambient` / `?mode=play`, `?wallpaper=1` (host mode, starts in Ambient).
+URL flags: `?mode=ambient` / `?mode=play`, `?wallpaper=1` (host mode, starts in Ambient),
+`?time=14.5` (fixed time of day), `?view=top`, `?panel=0` / `?panel=1`, `?tab=nature` — handy for
+screenshots and shared links (the README previews were captured with these).
 
 ## Two views, one 3D world
 
