@@ -280,8 +280,13 @@ export class TerrainSystem {
    */
   stampIsland(x: number, z: number, radius: number) {
     const { nx, nz, base, sed } = this;
-    const top = CONFIG.world.waterLevel + CONFIG.sand.islandCrest;
-    const reach = radius * 2.4;
+    const level = CONFIG.world.waterLevel;
+    const top = level + CONFIG.sand.islandCrest;
+    // Profile of a real sand island: a gently domed beach plateau, a smooth beach face down to
+    // the waterline at `radius`, then a concave shoreface (Dean-type, depth ∝ distance^(2/3))
+    // that flares out until it meets the seabed — a sand bar, not a spike from the deep floor.
+    const skirt = 8;
+    const reach = radius * 1.2 + skirt;
     const i0 = Math.max(0, Math.floor((x - reach - this.x0) / this.dx));
     const i1 = Math.min(nx - 1, Math.ceil((x + reach - this.x0) / this.dx));
     const j0 = Math.max(0, Math.floor((z - reach - this.z0) / this.dz));
@@ -295,9 +300,15 @@ export class TerrainSystem {
           pz = this.z0 + j * this.dz - z;
         const ang = Math.atan2(pz, px);
         const wob = 1 + 0.12 * Math.sin(ang * 3 + seed) + 0.06 * Math.sin(ang * 5 - seed);
-        const r = Math.sqrt(px * px + pz * pz) / (radius * wob);
-        const f = Math.exp(-Math.pow(r, 2.3));
-        const target = top - 0.08 * r * r - (top + 9) * (1 - f);
+        const d = Math.sqrt(px * px + pz * pz) / wob; // world units, with a wobbly coastline
+        const rn = d / radius;
+        let target: number;
+        if (rn <= 0.55) target = top - 0.06 * (rn / 0.55) ** 2;
+        else if (rn <= 1) target = top - 0.06 + (level - 0.18 - (top - 0.06)) * smoothstep(0.55, 1, rn);
+        else {
+          const u = d - radius;
+          target = level - 0.18 - 1.25 * Math.pow(u, 0.67) - 0.02 * u * u;
+        }
         const h = base[k] + sed[k];
         if (target > h) {
           const add = Math.min(target - h, CONFIG.sand.maxSediment - sed[k]);

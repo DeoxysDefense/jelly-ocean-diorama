@@ -1,7 +1,7 @@
 {
   "name": "jelly-ocean-diorama",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Interactive 2.5D Jelly Ocean Diorama — Three.js living ocean cross-section, designed as an interactive desktop wallpaper.",
   "scripts": {
@@ -12,7 +12,8 @@
     "test": "tsc --noEmit && vitest run",
     "package:lively": "npm run build && node scripts/package-lively.mjs",
     "package:desktop": "npm run package:lively && node scripts/package-desktop.mjs",
-    "package:all": "npm run package:desktop"
+    "package:all": "npm run package:desktop",
+    "demo:video": "npm run package:desktop && node scripts/make-demo-video.mjs"
   },
   "dependencies": {
     "three": "^0.170.0"

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config';
-import { shared } from '../util/shaders';
+import { FLOW_SLOTS, shared } from '../util/shaders';
 
 interface Emitter {
   p: THREE.Vector3;
@@ -40,6 +40,16 @@ export class FlowField {
     this.emitters.length = 0;
   }
 
+  /** A random jet that is still flowing noticeably (for visual effects), or null. */
+  randomJet(): { p: THREE.Vector3; r: number } | null {
+    const n = this.emitters.length;
+    for (let tries = 0; tries < 4 && n; tries++) {
+      const e = this.emitters[Math.floor(Math.random() * n)];
+      if (e.v.length() * fade(e.life / e.max) > 0.6) return e;
+    }
+    return null;
+  }
+
   /** Flow velocity at a point (units/s). */
   velocityAt(x: number, y: number, z: number, out: THREE.Vector3) {
     out.set(0, 0, 0);
@@ -65,10 +75,19 @@ export class FlowField {
       this.emitters[i].life -= dt;
       if (this.emitters[i].life <= 0) this.emitters.splice(i, 1);
     }
-    // pick the 4 strongest for the plant shaders
+    // pick up to FLOW_SLOTS strong jets for the plant shaders, spread along the stroke
+    // (the newest jets cluster at the cursor; spacing lets the whole painted path bend the plants)
     const sorted = [...this.emitters].sort((a, b) => b.v.length() * fade(b.life / b.max) - a.v.length() * fade(a.life / a.max));
-    for (let i = 0; i < 4; i++) {
-      const e = sorted[i];
+    const picked: Emitter[] = [];
+    for (const minGap of [0.8, 0]) {
+      for (const e of sorted) {
+        if (picked.length >= FLOW_SLOTS) break;
+        if (picked.includes(e)) continue;
+        if (picked.every((q) => q.p.distanceTo(e.p) > e.r * minGap)) picked.push(e);
+      }
+    }
+    for (let i = 0; i < FLOW_SLOTS; i++) {
+      const e = picked[i];
       const P = this.uniforms.uFlowP.value[i],
         V = this.uniforms.uFlowV.value[i];
       if (e) {

@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 
+/** Painted-current jets the plant shader samples (spread along the stroke by FlowField). */
+export const FLOW_SLOTS = 8;
+
 /** Uniforms shared by every patched material (one object => one update per frame). */
 export const shared = {
   uTime: { value: 0 },
@@ -10,9 +13,9 @@ export const shared = {
   uWind: { value: 0.25 },
   /** Time integrated with wind-dependent speed; drives plant sway without phase jumps. */
   uSwayTime: { value: 0 },
-  /** Current Brush: 4 strongest local flows (xyz + radius) and their velocities. */
-  uFlowP: { value: [0, 1, 2, 3].map(() => new THREE.Vector4(0, -999, 0, 0.001)) },
-  uFlowV: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) },
+  /** Current Brush: FLOW_SLOTS strong local flows (xyz + radius) and their velocities. */
+  uFlowP: { value: Array.from({ length: FLOW_SLOTS }, () => new THREE.Vector4(0, -999, 0, 0.001)) },
+  uFlowV: { value: Array.from({ length: FLOW_SLOTS }, () => new THREE.Vector3()) },
   /** Highlight tint for the selection system (per material instance overrides). */
 };
 
@@ -107,7 +110,7 @@ export function patchMaterial<T extends THREE.MeshStandardMaterial>(mat: T, opts
         varying vec3 vWPos;
         varying vec3 vLPos;
         uniform float uTime; uniform float uWind; uniform float uSwayTime;
-        ${sway ? 'uniform float uSwayHeight, uSwayAmount, uSwayBase, uSwayWindK, uSwaySpeed, uWaterLevel; uniform vec4 uFlowP[4]; uniform vec3 uFlowV[4];' : ''}
+        ${sway ? `uniform float uSwayHeight, uSwayAmount, uSwayBase, uSwayWindK, uSwaySpeed, uWaterLevel; uniform vec4 uFlowP[${FLOW_SLOTS}]; uniform vec3 uFlowV[${FLOW_SLOTS}];` : ''}
         ${sway && sway.instanced ? 'attribute float aPhase;' : ''}
         `,
       )
@@ -132,7 +135,7 @@ export function patchMaterial<T extends THREE.MeshStandardMaterial>(mat: T, opts
           // (palm trunks and island shrubs sway with the wind only)
           vec3 fl = vec3(0.0);
           if (org.y < uWaterLevel - 0.05) {
-            for (int i = 0; i < 4; i++) {
+            for (int i = 0; i < ${FLOW_SLOTS}; i++) {
               vec3 d = (org - uFlowP[i].xyz) / uFlowP[i].w;
               fl += uFlowV[i] * exp(-dot(d, d) * 1.4);
             }

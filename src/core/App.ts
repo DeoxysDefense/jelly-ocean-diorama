@@ -12,6 +12,7 @@ import { Lighting } from '../world/Lighting';
 import { Island } from '../world/Island';
 import { Reef } from '../world/Reef';
 import { Bubbles, MarineSnow, pointScale } from '../world/Particles';
+import { CurrentStreaks } from '../world/CurrentStreaks';
 import { SedimentSimulation } from '../world/SedimentSimulation';
 import { CreatureManager } from '../creatures/CreatureManager';
 import { FoodSystem } from '../creatures/FoodSystem';
@@ -60,6 +61,7 @@ export class App {
   readonly island: Island;
   readonly reef: Reef;
   readonly bubbles: Bubbles;
+  readonly streaks: CurrentStreaks;
   readonly snow: MarineSnow;
   readonly sediment: SedimentSimulation;
   readonly creatures: CreatureManager;
@@ -146,6 +148,8 @@ export class App {
     this.sediment.onSettle = (x, z) => this.creatures.seabedDisturbance(x, z, 0.7);
     this.world.add(this.bubbles.points, this.snow.points, this.sediment.mesh);
     this.plankton = new Plankton(this.terrain, this.sim, this.flow);
+    this.streaks = new CurrentStreaks(this.terrain, this.sim, this.flow);
+    this.world.add(this.streaks.mesh);
     this.rain = new Rain(this.sim, this.terrain);
     this.rain.onDrop = (x, z) => this.plankton.excite(x, this.sim.level - 0.15, z, 0.35, 0.25);
     this.floaters = new Floaters(this.sim, this.terrain, this.flow);
@@ -307,6 +311,7 @@ export class App {
     this.reef.resetPositions();
     this.creatures.resetPopulation();
     this.flow.clear();
+    this.streaks.clear();
     this.creatures.reset();
     this.creatures.food.clear();
     this.sim.reset();
@@ -454,6 +459,7 @@ export class App {
     this.island.update(dt, this.time);
     this.selection.update(dt, this.time);
     this.bubbles.update(dt, this.time, ambient);
+    this.streaks.update(dt, this.cam.camera);
     this.snow.update(dt, this.time, wind, ambient);
     this.ocean.update(dt, this.time, ambient, this.cam.blend);
     this.sky.update(dt, this.time, wind, this.cam.viewW / this.cam.viewH, this.cam.blend, atm);

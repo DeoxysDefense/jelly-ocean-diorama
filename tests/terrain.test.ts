@@ -51,7 +51,7 @@ describe('Terrain editor brushes', () => {
     const added = t.stampIsland(4, 1, 2.5);
     expect(added).toBeGreaterThan(1);
     expect(t.heightAt(4, 1)).toBeGreaterThan(CONFIG.world.waterLevel);
-    for (let i = 0; i < 400; i++) t.removeSediment(4, 1, 6, 6, 1);
+    for (let i = 0; i < 400; i++) t.removeSediment(4, 1, 13, 13, 1); // the shoreface skirt reaches ~radius + 8
     expect(t.hasSediment()).toBe(false);
     expect(t.base).toEqual(base);
   });

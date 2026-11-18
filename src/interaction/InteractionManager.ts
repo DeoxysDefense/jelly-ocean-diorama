@@ -575,7 +575,8 @@ export class InteractionManager {
             if (d.length() > 0.02) {
               const v = d.divideScalar(Math.max(this.currentT, 1 / 60)).multiplyScalar(0.5 + amount * 0.9);
               app.flow.add(wp, v, R, this.top ? 2.0 : 1.0);
-              if (Math.random() < 0.6) app.bubbles.emit(wp.x, wp.y, wp.z, 1, R * 0.4, 0.45);
+              app.streaks.spawn(wp, R * 0.5, 4);
+              if (Math.random() < 0.6) app.bubbles.emit(wp.x, wp.y, wp.z, 2, R * 0.35, 0.8);
               if (wp.y > -1.2) app.sim.disturb(wp.x, zClamp(wp.z, 0.4), -v.length() * 0.03, 0.5);
               this.notifyT -= this.currentT;
               if (this.notifyT <= 0 && v.length() > 1.5) {

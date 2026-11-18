@@ -81,7 +81,7 @@ export class OceanMail {
       glow,
       pos,
       vel: new THREE.Vector3(0.15, 0, 0),
-      draft: 0.035,
+      draft: -0.07, // an air-filled bottle floats high: the rolled note stays above the waterline (refraction would otherwise shift it outside the glass)
       yaw: rand(-0.4, 0.4),
       spin: rand(-0.05, 0.05),
       tilt: 0.8,
@@ -236,11 +236,11 @@ function buildBottle() {
   // rolled parchment note inside, tied with twine
   const paperMat = new THREE.MeshStandardMaterial({ color: 0xeedcb0, roughness: 0.85, map: paperTexture() });
   const paper = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.27, 18, 1, false).rotateZ(Math.PI / 2), paperMat);
-  paper.position.set(-0.06, -0.035, 0);
+  paper.position.set(-0.06, -0.012, 0);
   const curl = new THREE.Mesh(new THREE.TorusGeometry(0.042, 0.006, 6, 20, Math.PI * 1.5).rotateY(Math.PI / 2), paperMat);
-  curl.position.set(0.075, -0.035, 0);
+  curl.position.set(0.075, -0.012, 0);
   const twine = new THREE.Mesh(new THREE.TorusGeometry(0.044, 0.004, 6, 22).rotateY(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xa04a32, roughness: 0.8 }));
-  twine.position.set(-0.06, -0.035, 0);
+  twine.position.set(-0.06, -0.012, 0);
   // cork
   const corkGeo = new THREE.CylinderGeometry(0.036, 0.031, 0.075, 16, 2);
   const cp = corkGeo.attributes.position as THREE.BufferAttribute;

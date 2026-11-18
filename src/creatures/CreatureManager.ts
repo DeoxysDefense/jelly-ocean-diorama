@@ -94,6 +94,9 @@ export class CreatureManager {
     this.ray = new Stingray(ctx);
     this.group.add(this.ray.group);
     this.octopus = new Octopus(ctx);
+    // its arms are bent in the vertex shader, so the geometry bounds don't match what is drawn;
+    // without this, narrow views (the Magnifier) cull the octopus away
+    this.octopus.group.traverse((o) => (o.frustumCulled = false));
     this.group.add(this.octopus.group, this.octopus.inkObject);
     ctx.creatureObstacles = this.creatureObs;
     this.applyPopulation();

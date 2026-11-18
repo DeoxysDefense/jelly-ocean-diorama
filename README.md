@@ -2,7 +2,7 @@
 
 # Jelly Ocean Diorama
 
-**Version 1.0** — first public release.
+**Version 1.1** — visible painted currents and bug fixes (see [Changelog](#changelog)).
 
 **Use it three ways:** as an interactive **desktop wallpaper** (Lively Wallpaper), as a
 **desktop app** that opens in its own window from a shortcut, or in any browser.
@@ -45,6 +45,7 @@ Open http://127.0.0.1:5173.
 | `npm run build` | Type-check + production build into `dist/` |
 | `npm run preview` | Serve the production build |
 | `npm run package:desktop` | Lively package + desktop app package → `dist-desktop/`, `JellyOcean-Desktop.zip` |
+| `npm run demo:video` | Renders the ~1-minute gameplay demo (1080p60 + 720p web version, synthesized music & sound effects) into `demo/` — needs Microsoft Edge, no other tools |
 | `npm test` | Type-check + unit tests (Vitest): water sim stability, sediment rules, undo, crab shoreline, save migration, messages, coconut timer |
 | `npm run typecheck` | TypeScript only |
 | `npm run package:lively` | Single-file wallpaper build in `dist-lively/` + `JellyOcean-Lively.zip` |
@@ -166,13 +167,13 @@ only its own properties.
 | Tab | Tool | Key | What it does |
 |---|---|---|---|
 | Interact | Water | 1 | Hover ripples · drag lifts / presses the surface (Front) or ploughs waves (Top) · click a creature for a species-specific reaction |
-| Interact | Current | 2 | Drag through the water to paint a current; a loop makes a swirl. Fish shift course, jellyfish drift, particles, sand, food, bubbles and seagrass follow. Strength / size / depth |
+| Interact | Current | 2 | Drag through the water to paint a current; a loop makes a swirl. Soft white streaks show where the water flows; fish shift course, jellyfish drift, particles, sand, food, bubbles and seagrass bend along the whole stroke. Strength / size / depth |
 | Interact | Feed | 3 | Click over the water; pellet count and depth are adjustable |
 | Interact | Bubbles | 4 | Hold on the seabed for a rising stream that pops into ripples |
 | Create | Sand → Add | 5 | Hold to pour; **Flow rate** sets how much, **Brush size** the spread |
 | Create | Sand → Erase | 5 | Removes only added sand / stamped islands — the original seabed is protected |
 | Create | Sand → Smooth | 5 | Softens peaks and fills small hollows |
-| Create | Sand → Island | 5 | Click to place a sand bar that rises above the water (compacted: it doesn't slump; erase or smooth it like other sand) |
+| Create | Sand → Island | 5 | Click to raise a small sand island: a flat beach top and a gently flaring underwater slope, like a real sand bar (compacted: it doesn't slump; erase or smooth it like other sand) |
 | Create | Objects | 6 | Drag corals, rocks, shells, seagrass; wheel while dragging = depth in Front View; invalid drops snap back |
 
 Creature reactions (Water tool click): octopus peeks out when gently disturbed, hides when
@@ -254,7 +255,8 @@ Transparent water is the classic sorting problem, so the water is not alpha-blen
   and each other, with turn-rate limits.
 * **Stingray:** slow gliding between waypoints with travelling wing undulation, banking, exits.
 * **Jellyfish:** pulse-driven (fast contraction, slow relaxation), drift with the current,
-  never chase food, keep clear of the seabed and surface.
+  never chase food, keep clear of the seabed and surface; if an island is raised under one it
+  slides down the slope to deeper water.
 * **Crabs:** sideways walk with leg gait, idle claw picking, forage settled food, flee/alert when
   sand lands or objects move nearby.
 * **Octopus:** hidden in den / coral → peek → crawl ↔ explore → buried in sand (camouflage);
@@ -335,6 +337,19 @@ User settings (water look, wind, mode, panel state) persist in `localStorage`.
 - [x] terrain editor (flow rate, brush size, erase, smooth, island stamp), Current Brush, Bubble tool
 - [x] creature poke reactions, jellyfish hover glow, Ocean Studio tabbed panel, Redo, Save / Load / Export World
 - [x] island rebuilt as a low sand bar on a shallow lagoon shelf; softer water top face with capillary ripples
+
+## Changelog
+
+**1.1**
+- Current Brush: painted currents are now visible as flowing streaks, and seagrass bends along
+  the whole stroke (not only under the cursor); the brush releases bigger bubbles.
+- Jellyfish no longer get stuck on top of a freshly raised island; they always stay underwater.
+- Island stamp: a flat beach top with a gently flaring underwater slope instead of a cone.
+- Magnifier follows the camera zoom and shows the octopus correctly.
+- Ocean Mail: the rolled note no longer pokes through the bottle glass.
+- New `npm run demo:video` script that renders the gameplay demo video.
+
+**1.0** — first public release.
 
 ## Known limitations / next steps
 

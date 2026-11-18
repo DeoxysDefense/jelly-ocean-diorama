@@ -142,10 +142,12 @@ export class Magnifier {
     const c = this.pinned ? this.pinNdc : this.ndc;
     // lens frustum: the region under the lens, shrunk by the zoom factor (no distortion)
     const main = app.cam.camera;
-    const W = main.right - main.left,
-      H = main.top - main.bottom;
-    const cx = main.left + ((c.x + 1) / 2) * W,
-      cy = main.bottom + ((c.y + 1) / 2) * H;
+    // the main camera's visible frustum (respecting its zoom, as three.js does)
+    const z0 = main.zoom || 1;
+    const W = (main.right - main.left) / z0,
+      H = (main.top - main.bottom) / z0;
+    const cx = (main.left + main.right) / 2 + (c.x * W) / 2,
+      cy = (main.top + main.bottom) / 2 + (c.y * H) / 2;
     const hw = ((size / 2) / cssW) * W / this.zoom;
     const hh = ((size / 2) / cssH) * H / this.zoom;
     const cam = this.cam;

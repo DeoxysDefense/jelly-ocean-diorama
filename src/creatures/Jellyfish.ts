@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { CONFIG, zClamp } from '../config';
-import { clamp, rand } from '../util/math';
+import { rand } from '../util/math';
 import { lathe } from '../util/geometry';
 import { shared } from '../util/shaders';
 import type { WorldContext } from './types';
@@ -191,8 +191,36 @@ export class Jellyfish {
     if (Math.abs(this.pos.x) > 18) want.x -= Math.sign(this.pos.x) * 0.8;
     if (this.pos.z > CONFIG.world.zFront - 1.8) want.z -= 0.5;
     if (this.pos.z < CONFIG.world.zBack + 1.8) want.z += 0.5;
-    // island: steer away from land
-    if (ctx.terrain.heightAt(this.pos.x + this.vel.x, this.pos.z) > this.pos.y - 1.0) want.x += this.pos.x < -8 ? -0.6 : 0.6;
+    // land (main island or a freshly stamped islet): steer down the terrain slope toward deep water
+    const depth = surf - ground;
+    const ahead = ctx.terrain.heightAt(this.pos.x + this.vel.x, this.pos.z + this.vel.z);
+    if (depth < 2.6 || ahead > this.pos.y - 1.0) {
+      let gx = 0,
+        gz = 0,
+        gl = 0;
+      // fine slope first; on a flat islet top widen the probe until it reaches the shore
+      for (const e of [0.6, 2.0, 4.0]) {
+        gx = ctx.terrain.heightAt(this.pos.x + e, this.pos.z) - ctx.terrain.heightAt(this.pos.x - e, this.pos.z);
+        gz = ctx.terrain.heightAt(this.pos.x, this.pos.z + e) - ctx.terrain.heightAt(this.pos.x, this.pos.z - e);
+        gl = Math.hypot(gx, gz);
+        if (gl > 1e-3) break;
+      }
+      if (gl <= 1e-3) {
+        gx = Math.sin(this.id * 2.4);
+        gz = Math.cos(this.id * 2.4);
+        gl = 1;
+      }
+      {
+        want.x -= (gx / gl) * 0.9;
+        want.z -= (gz / gl) * 0.5;
+        // stranded in the shallows (e.g. an island rose underneath): drift out bodily, not only by steering
+        if (depth < 1.6) {
+          const push = (1.6 - Math.max(0, depth)) * 1.8 * dt;
+          this.vel.x -= (gx / gl) * push;
+          this.vel.z -= (gz / gl) * push;
+        }
+      }
+    }
     want.normalize();
     this.axis.lerp(want, Math.min(1, dt * 0.4)).normalize();
 
@@ -207,8 +235,11 @@ export class Jellyfish {
     if (ctx.flow.active) this.vel.addScaledVector(ctx.flow.velocityAt(this.pos.x, this.pos.y, this.pos.z, this.fv), dt * 0.8);
     this.vel.multiplyScalar(Math.exp(-1.6 * dt));
     this.pos.addScaledVector(this.vel, dt);
-    this.pos.y = clamp(this.pos.y, ground + 0.9, surf - 0.45);
     this.pos.z = zClamp(this.pos.z, 1.4);
+    // stay submerged: the surface limit wins over the floor limit when the water is shallow
+    const g2 = ctx.terrain.heightAt(this.pos.x, this.pos.z);
+    const s2 = ctx.water.heightAt(this.pos.x, this.pos.z);
+    this.pos.y = Math.min(Math.max(this.pos.y, g2 + 0.9), s2 - 0.45);
     // bioluminescent response (hover / poke)
     this.glow = Math.max(0, this.glow - dt * 0.6);
     this.bellMat.emissive.copy(this.baseEmissive).multiplyScalar(1 + this.glow * 5 + this.nightGlow * 3.5);

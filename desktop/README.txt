@@ -1,4 +1,4 @@
-Jelly Ocean Diorama 1.0 - desktop version
+Jelly Ocean Diorama 1.1 - desktop version
 =========================================
 
 1. Unzip this folder somewhere permanent (for example Documents\Jelly Ocean).
