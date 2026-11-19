@@ -145,6 +145,15 @@ export class Jellyfish {
   }
 
   /** Poked: glow, pulse right away and drift away from the poke. */
+  /** Held and guided: drifts gently toward the pointer. */
+  towards(p: THREE.Vector3, dt: number) {
+    const d = this.fv.copy(p).sub(this.pos);
+    const l = d.length();
+    if (l < 0.05) return;
+    this.vel.addScaledVector(d, Math.min(1, dt * 1.2) * Math.min(1, 0.6 / l) * 0.9);
+    this.glowUp(0.25);
+  }
+
   poke(from: THREE.Vector3) {
     this.glowUp(1);
     this.pulseT = this.period * 0.98;
@@ -230,7 +239,7 @@ export class Jellyfish {
     this.vel.x += (Math.sin(time * 0.11 + this.id * 2.1) * 0.05 + wind * 0.03 * (0.6 + 0.4 * Math.sin(this.id))) * dt;
     for (const o of ctx.obstacles()) {
       const d = this.pos.distanceTo(o.center);
-      if (d < o.radius + 0.6) this.vel.add(this.pos.clone().sub(o.center).normalize().multiplyScalar(dt * 0.8));
+      if (d < o.radius + 0.6 && d > 1e-4) this.vel.addScaledVector(this.fv.copy(this.pos).sub(o.center), (dt * 0.8) / d);
     }
     if (ctx.flow.active) this.vel.addScaledVector(ctx.flow.velocityAt(this.pos.x, this.pos.y, this.pos.z, this.fv), dt * 0.8);
     this.vel.multiplyScalar(Math.exp(-1.6 * dt));

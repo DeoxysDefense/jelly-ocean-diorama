@@ -12,8 +12,9 @@ describe('V3 world depth', () => {
   it('the world is deeper along z, front cut unchanged', () => {
     expect(CONFIG.world.zFront).toBe(6);
     const depth = CONFIG.world.zFront - CONFIG.world.zBack;
-    expect(depth / 12).toBeGreaterThanOrEqual(1.5);
-    expect(depth / 12).toBeLessThanOrEqual(1.8);
+    // V2: ×1.5 the v1 depth (19)
+    expect(depth / 19).toBeGreaterThanOrEqual(1.45);
+    expect(depth / 19).toBeLessThanOrEqual(1.55);
     for (let i = 0; i < 200; i++) {
       const z = randZ(1, 1.4);
       expect(z).toBeGreaterThanOrEqual(CONFIG.world.zBack + 1 - 1e-9);
@@ -82,7 +83,7 @@ describe('Coconut growth timer', () => {
     const prefs = new Prefs();
     prefs.data.coconut = { on: true, intervalMin: 60, max: 4, trees: [{ ripe: 0, since: now }, { ripe: 3, since: now }] };
     const palms = [0, 1].map(() => ({ crown: new THREE.Group(), origin: new THREE.Vector3(), trunk: new THREE.Mesh(), fronds: [], spine: [] }));
-    const app = { island: { palms, shakePalm() {} }, ui: null } as any;
+    const app = { island: { palms, allPalms: palms, shakePalm() {} }, ui: null } as any;
     return { prefs, coco: new CoconutGrowth(app, prefs) };
   }
 

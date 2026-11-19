@@ -73,6 +73,8 @@ export interface PatchOptions {
     /** Uses per-instance attribute aPhase when true. */
     instanced?: boolean;
     speed?: number;
+    /** Painted water currents bend it (default true). Land plants (palms, shrubs, beach grass) set false. */
+    flow?: boolean;
   };
   /** Extra emissive-like rim (fake subsurface) strength. */
   rim?: number;
@@ -134,7 +136,7 @@ export function patchMaterial<T extends THREE.MeshStandardMaterial>(mat: T, opts
           // painted currents are water currents: only plants rooted under water feel them
           // (palm trunks and island shrubs sway with the wind only)
           vec3 fl = vec3(0.0);
-          if (org.y < uWaterLevel - 0.05) {
+          if (${sway.flow === false ? 'false' : 'true'} && org.y < uWaterLevel - 0.05) {
             for (int i = 0; i < ${FLOW_SLOTS}; i++) {
               vec3 d = (org - uFlowP[i].xyz) / uFlowP[i].w;
               fl += uFlowV[i] * exp(-dot(d, d) * 1.4);
@@ -209,6 +211,6 @@ export function patchMaterial<T extends THREE.MeshStandardMaterial>(mat: T, opts
       );
   };
   mat.customProgramCacheKey = () =>
-    `jelly-${opts.key ?? ''}-${opts.caustics ? 1 : 0}-${sway ? (sway.instanced ? 2 : 1) : 0}-${opts.rim ? 1 : 0}-${opts.bump ? 1 : 0}`;
+    `jelly-${opts.key ?? ''}-${opts.caustics ? 1 : 0}-${sway ? (sway.instanced ? 2 : 1) + (sway.flow === false ? 10 : 0) : 0}-${opts.rim ? 1 : 0}-${opts.bump ? 1 : 0}`;
   return mat;
 }

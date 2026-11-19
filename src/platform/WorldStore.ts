@@ -3,6 +3,8 @@ import { CONFIG } from '../config';
 import type { WaterPresetId } from '../config';
 import type { PlaceType } from '../world/Reef';
 import type { TideMode, TimeMode } from '../core/EnvironmentController';
+import { sanitizeBirth, type SavedCreations } from '../features/Creations';
+import type { BirthMeta } from '../content/journal';
 
 /**
  * Save / Load World: the user's edits (added sand / islands, object placement) plus the
@@ -17,18 +19,30 @@ const KEY = 'jelly-ocean-world-v2';
  *  v3 — the world is deeper (z [-13, 6]); the grid records its own bounds (`bounds`) and the
  *       sediment is resampled by world coordinates on load, so sand piles, islands and objects
  *       from older saves stay exactly where they were. Adds `extras` (island life, preferences).
+ *  v4 — V2 micro-archipelago: x [-51, 51], z [-22.6, 6]. The sand grid keeps v1 spacing (the
+ *       x columns and z rows of v1 grids line up exactly), and only the bounding box of cells
+ *       that hold sand is stored (`box`), so the bigger world doesn't bloat the save.
+ *  v5 — V2 Ocean Journal: `creations` (islands / dunes the user made: where, when, under what
+ *       sky) and birth data on placed objects. Older saves get their stamped islands recovered
+ *       from the compacted sand layer, named "from before".
  */
+export const SAVE_VERSION = 5;
+
 interface SavedWorld {
-  version: 2 | 3;
+  version: 2 | 3 | 4 | 5;
+  /** v5: My Ocean records. */
+  creations?: SavedCreations;
   savedAt: string;
   grid: [number, number];
   /** [xMin, xMax, zBack, zFront] of the sediment grid (v3+). */
   bounds?: [number, number, number, number];
+  /** v4: [i0, i1, j0, j1] — `sediment` only holds this inclusive box of the grid (both layers). */
+  box?: [number, number, number, number];
   extras?: Record<string, unknown>;
   sediment: string; // base64 Float32Array
   objects: { id: string; x: number; y: number; z: number; rotY: number }[];
   /** User-placed habitat / decor objects (rebuilt from type + seed). */
-  placed?: { id: string; type: PlaceType; seed: number; x: number; z: number; rotY: number }[];
+  placed?: { id: string; type: PlaceType; seed: number; x: number; z: number; rotY: number; bornAt?: number; birth?: BirthMeta; natural?: boolean }[];
   population?: Record<string, number>;
   env: {
     preset: WaterPresetId;
@@ -41,6 +55,31 @@ interface SavedWorld {
     tideMode?: TideMode;
   };
 }
+
+/** Decodes the sand grid of any supported save version into a full [sed, firm] grid + bounds. */
+export function decodeGrid(w: SavedWorld): { raw: Float32Array; onx: number; onz: number; bounds: number[] } | null {
+  if (w.version !== 2 && w.version !== 3 && w.version !== 4 && w.version !== 5) return null;
+  const [onx, onz] = w.grid;
+  if (!(onx > 1 && onz > 1)) return null;
+  let raw: Float32Array;
+  if (w.version >= 4 && w.box) {
+    const [i0, i1, j0, j1] = w.box;
+    if (i1 < i0 || j1 < j0) raw = new Float32Array(onx * onz * 2);
+    else {
+      if (i0 < 0 || j0 < 0 || i1 >= onx || j1 >= onz) return null;
+      const data = fromB64(w.sediment);
+      if (data.length !== (i1 - i0 + 1) * (j1 - j0 + 1) * 2) return null;
+      raw = uncropGrid(data, w.box, onx, onz);
+    }
+  } else {
+    raw = fromB64(w.sediment);
+    if (raw.length !== onx * onz && raw.length !== onx * onz * 2) return null;
+  }
+  const bounds = w.bounds ?? [-30, 30, -6, 6]; // v2 grids always covered z [-6, 6]
+  return { raw, onx, onz, bounds };
+}
+
+export type { SavedWorld };
 
 function toB64(arr: Float32Array) {
   const bytes = new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
@@ -89,18 +128,61 @@ export function migrateGrid(raw: Float32Array, onx: number, onz: number, b: numb
   return out;
 }
 
+/** Crops a [sed, firm] grid to the box of non-zero cells. Returns null when there is no sand. */
+export function cropGrid(full: Float32Array, nx: number, nz: number): { box: [number, number, number, number]; data: Float32Array } | null {
+  const n = nx * nz;
+  let i0 = nx,
+    i1 = -1,
+    j0 = nz,
+    j1 = -1;
+  for (let j = 0; j < nz; j++)
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      if (full[k] !== 0 || full[n + k] !== 0) {
+        if (i < i0) i0 = i;
+        if (i > i1) i1 = i;
+        if (j < j0) j0 = j;
+        if (j > j1) j1 = j;
+      }
+    }
+  if (i1 < 0) return null;
+  const w = i1 - i0 + 1,
+    h = j1 - j0 + 1;
+  const data = new Float32Array(w * h * 2);
+  for (let L = 0; L < 2; L++)
+    for (let j = 0; j < h; j++) data.set(full.subarray(L * n + (j0 + j) * nx + i0, L * n + (j0 + j) * nx + i0 + w), L * w * h + j * w);
+  return { box: [i0, i1, j0, j1], data };
+}
+
+/** Inverse of cropGrid. */
+export function uncropGrid(data: Float32Array, box: number[], nx: number, nz: number): Float32Array {
+  const [i0, i1, j0, j1] = box;
+  const w = i1 - i0 + 1,
+    h = j1 - j0 + 1;
+  const n = nx * nz;
+  const out = new Float32Array(n * 2);
+  for (let L = 0; L < 2; L++)
+    for (let j = 0; j < h; j++) out.set(data.subarray(L * w * h + j * w, L * w * h + (j + 1) * w), L * n + (j0 + j) * nx + i0);
+  return out;
+}
+
 export const WorldStore = {
   serialize(app: App): SavedWorld {
+    const nx = app.terrain.nx,
+      nz = app.terrain.nz;
+    const crop = cropGrid(app.terrain.snapshot(), nx, nz);
     return {
-      version: 3,
+      version: SAVE_VERSION,
       savedAt: new Date().toISOString(),
-      grid: [app.terrain.nx, app.terrain.nz],
+      grid: [nx, nz],
       bounds: [CONFIG.world.xMin, CONFIG.world.xMax, CONFIG.world.zBack, CONFIG.world.zFront],
       extras: app.serializeExtras(),
-      sediment: toB64(app.terrain.snapshot()),
+      creations: app.creations.serialize(),
+      box: crop ? crop.box : [0, -1, 0, -1],
+      sediment: crop ? toB64(crop.data) : '',
       placed: app.reef.selectables
         .filter((s) => s.user && s.type)
-        .map((s) => ({ id: s.id, type: s.type!, seed: s.seed ?? 1, x: s.object.position.x, z: s.object.position.z, rotY: s.object.rotation.y })),
+        .map((s) => ({ id: s.id, type: s.type!, seed: s.seed ?? 1, x: s.object.position.x, z: s.object.position.z, rotY: s.object.rotation.y, ...(s.bornAt ? { bornAt: s.bornAt } : {}), ...(s.birth ? { birth: s.birth } : {}), ...(s.natural ? { natural: true } : {}) })),
       population: { ...app.creatures.population },
       objects: app.reef.selectables.filter((s) => !s.user).map((s) => ({
         id: s.id,
@@ -123,16 +205,25 @@ export const WorldStore = {
   },
 
   apply(app: App, w: SavedWorld): boolean {
-    if (w.version !== 2 && w.version !== 3) return false;
-    const raw = fromB64(w.sediment);
-    const [onx, onz] = w.grid;
-    if (raw.length !== onx * onz && raw.length !== onx * onz * 2) return false;
-    const bounds = w.bounds ?? [-30, 30, -6, 6]; // v2 grids always covered z [-6, 6]
-    app.terrain.restore(migrateGrid(raw, onx, onz, bounds, app.terrain.nx, app.terrain.nz));
+    const grid = decodeGrid(w);
+    if (!grid) return false;
+    app.terrain.restore(migrateGrid(grid.raw, grid.onx, grid.onz, grid.bounds, app.terrain.nx, app.terrain.nz));
     app.reef.resetPositions(); // drops user objects, restores the original set
+    const savedAt = Date.parse(w.savedAt) || 0;
     for (const p of w.placed ?? []) {
       const sel = app.reef.createObject(p.type, p.x, p.z, p.seed, p.rotY, p.id);
       sel.placedAt = 0;
+      sel.bornAt = Number.isFinite(p.bornAt) ? p.bornAt : savedAt;
+      sel.birth = p.birth ? sanitizeBirth(p.birth) : { h: 12, rain: 0, wind: 0, night: 0, old: true };
+      // v1–v4 saves don't know who left a shell; a shell without birth data from an old save is
+      // most likely a hermit crab's, so it is treated as natural
+      if (p.natural || (p.type === 'shell' && !p.birth)) sel.natural = true;
+    }
+    // My Ocean records (older saves: recover the stamped islands from the compacted sand)
+    if (w.version >= 5) app.creations.apply(w.creations);
+    else {
+      app.creations.clear();
+      app.creations.recoverIslands(savedAt);
     }
     if (w.population) for (const [k, v] of Object.entries(w.population)) app.creatures.setPopulation(k, v);
     const e = w.env;

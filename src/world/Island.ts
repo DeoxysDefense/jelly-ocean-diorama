@@ -38,11 +38,11 @@ export class Island {
     this.thatchMat = new THREE.MeshStandardMaterial({ map: thatch.map, normalMap: thatch.normalMap, normalScale: new THREE.Vector2(1, 1), roughness: 0.95, side: THREE.DoubleSide });
     this.barkMat = patchMaterial(
       new THREE.MeshStandardMaterial({ map: bark.map, normalMap: bark.normalMap, roughness: 0.9 }),
-      { sway: { height: 4.2, amount: 0.22, base: 0.18, wind: 1.0, speed: 0.8 }, key: 'bark' },
+      { sway: { height: 4.2, amount: 0.22, base: 0.18, wind: 1.0, speed: 0.8, flow: false }, key: 'bark' },
     );
     this.leafMat = patchMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.55, metalness: 0 }), { rim: 0.22, key: 'palmleaf' });
     this.bushMat = patchMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: 0.65 }), {
-      sway: { height: 0.9, amount: 0.06, base: 0.25, wind: 1.0, speed: 1.4 },
+      sway: { height: 0.9, amount: 0.06, base: 0.25, wind: 1.0, speed: 1.4, flow: false },
       key: 'bush',
     });
 
@@ -444,7 +444,7 @@ export class Island {
   }
 
   // --------------------------------------------------------------- palms
-  private addPalm(x: number, z: number, height: number, leanX: number, leanZ: number, phase: number) {
+  private addPalm(x: number, z: number, height: number, leanX: number, leanZ: number, phase: number, parent: THREE.Object3D = this.group, list = this.palms) {
     const y0 = this.terrain.heightAt(x, z) - 0.15;
     const palm = new THREE.Group();
     palm.position.set(x, y0, z);
@@ -469,12 +469,12 @@ export class Island {
     trunk.castShadow = true;
     trunk.receiveShadow = true;
     palm.add(trunk);
-    this.group.add(palm);
+    parent.add(palm);
 
     const top = new THREE.Vector3(x + leanX, y0 + height, z + leanZ);
     const crown = new THREE.Group();
     crown.position.copy(top);
-    this.group.add(crown);
+    parent.add(crown);
     // crown shaft + old frond boots (fibrous bases)
     const shaft = new THREE.Mesh(
       lathe([[0.001, -0.32], [0.1, -0.3], [0.15, -0.16], [0.17, -0.02], [0.13, 0.08], [0.06, 0.14], [0.001, 0.16]], 14, (a2, t) => 1 + 0.06 * Math.sin(a2 * 7) * t),
@@ -523,12 +523,30 @@ export class Island {
       crown.add(pivot);
       fronds.push(pivot);
     });
-    this.palms.push({ crown, top, origin: palm.position.clone(), fronds, phase, bend: Math.min(1, (height / 4.2) ** 2), trunk, shake: 0, shakeT: 0, spine: curve.getPoints(14).map((p) => p.add(palm.position)) });
+    const entry: Island['palms'][number] = { crown, top, origin: palm.position.clone(), fronds, phase, bend: Math.min(1, (height / 4.2) ** 2), trunk, shake: 0, shakeT: 0, spine: curve.getPoints(14).map((p) => p.add(palm.position)) };
+    list.push(entry);
+    this.allPalms.push(entry);
+  }
+
+  /**
+   * V2: small palms on the new islands. They sway like the main palms but are not part of
+   * `palms` (no coconuts, no shaking, no Ocean Surprise fronds).
+   */
+  readonly decorPalms: Island['palms'] = [];
+  private palmLists = [this.palms, this.decorPalms];
+  /** V2: every palm that grows coconuts — the two main palms first (index 0, 1), then the new islands' palms. */
+  readonly allPalms: Island['palms'] = [];
+  addDecorPalm(x: number, z: number, height: number, leanX: number, leanZ: number, phase: number, parent: THREE.Object3D) {
+    this.addPalm(x, z, height, leanX, leanZ, phase, parent, this.decorPalms);
+  }
+  /** V2: shrubs on the new islands (shared look with the main island). */
+  addDecorBush(x: number, z: number, size: number, kind: 'ti' | 'green' | 'hibiscus', parent: THREE.Object3D, lift = 0) {
+    this.addBush(x, z, size, kind, parent, lift);
   }
 
   // --------------------------------------------------------------- plants
-  private addBush(x: number, z: number, size: number, kind: 'ti' | 'green' | 'hibiscus') {
-    const y = this.terrain.heightAt(x, z) - 0.03;
+  private addBush(x: number, z: number, size: number, kind: 'ti' | 'green' | 'hibiscus', parent: THREE.Object3D = this.group, lift = 0) {
+    const y = this.terrain.heightAt(x, z) - 0.03 + lift;
     const geos: THREE.BufferGeometry[] = [];
     const leaves = kind === 'ti' ? 11 : 14;
     for (let i = 0; i < leaves; i++) {
@@ -564,16 +582,10 @@ export class Island {
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    this.group.add(mesh);
+    parent.add(mesh);
   }
 
   private addGrass() {
-    const blade = leafGeometry({ length: 0.32, width: 0.03, segs: 4, fold: 0.1, curl: 0.25, shape: (t) => 1 - t * 0.9 });
-    blade.rotateZ(Math.PI / 2);
-    const mat = patchMaterial(new THREE.MeshStandardMaterial({ color: 0x8aa04a, roughness: 0.8, side: THREE.DoubleSide }), {
-      sway: { height: 0.32, amount: 0.05, base: 0.3, wind: 1.2, speed: 1.8, instanced: true },
-      key: 'grass',
-    });
     const tufts: [number, number][] = [];
     const I = CONFIG.island;
     for (let i = 0; i < 16; i++) {
@@ -581,6 +593,21 @@ export class Island {
       const r = this.rng.range(0.9, 1.75);
       tufts.push([I.x + Math.cos(a) * r * 1.1, I.z + (Math.sin(a) * r) / I.zScale]);
     }
+    this.grassTufts(tufts, this.group);
+  }
+
+  /** V2: beach grass tufts on the new islands (same blades as the main island). */
+  addDecorGrass(tufts: [number, number][], parent: THREE.Object3D) {
+    this.grassTufts(tufts, parent);
+  }
+
+  private grassTufts(tufts: [number, number][], parent: THREE.Object3D) {
+    const blade = leafGeometry({ length: 0.32, width: 0.03, segs: 4, fold: 0.1, curl: 0.25, shape: (t) => 1 - t * 0.9 });
+    blade.rotateZ(Math.PI / 2);
+    const mat = patchMaterial(new THREE.MeshStandardMaterial({ color: 0x8aa04a, roughness: 0.8, side: THREE.DoubleSide }), {
+      sway: { height: 0.32, amount: 0.05, base: 0.3, wind: 1.2, speed: 1.8, instanced: true, flow: false },
+      key: 'grass',
+    });
     const per = 14;
     const mesh = new THREE.InstancedMesh(blade, mat, tufts.length * per);
     const phases = new Float32Array(tufts.length * per);
@@ -606,7 +633,7 @@ export class Island {
     mesh.count = k;
     blade.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
     mesh.castShadow = true;
-    this.group.add(mesh);
+    parent.add(mesh);
   }
 
   private addBeachProps() {
@@ -628,7 +655,7 @@ export class Island {
 
   /** Shake a palm (Coconut harvest). */
   shakePalm(i: number) {
-    const p = this.palms[i];
+    const p = this.allPalms[i];
     if (!p) return;
     p.shake = 1;
     p.shakeT = 0;
@@ -649,7 +676,7 @@ export class Island {
     // Mirror the bark sway shader so crowns stay attached to the bending trunks.
     const wind = shared.uWind.value;
     const st = shared.uSwayTime.value * 0.8;
-    for (const palm of this.palms) {
+    for (const list of this.palmLists) for (const palm of list) {
       const off = swayOffset(palm.origin, st, wind, 0.22, 0.18, 1.0);
       const b = palm.bend;
       palm.crown.position.set(palm.top.x + off.x * b, palm.top.y - off.y * b, palm.top.z + off.z * b);

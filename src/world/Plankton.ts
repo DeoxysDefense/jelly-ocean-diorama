@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG, randZ } from '../config';
+import { CONFIG, outsideView, randViewX, randZ } from '../config';
 import { rand } from '../util/math';
 import { makeSoftDot } from '../util/textures';
 import { pointScale } from './Particles';
@@ -66,7 +66,7 @@ export class Plankton {
   }
 
   private respawn(i: number, anywhere = false) {
-    const x = rand(-22, 22),
+    const x = randViewX(),
       z = randZ(0.4);
     const ground = this.terrain.heightAt(x, z);
     const surf = this.water.level;
@@ -129,7 +129,7 @@ export class Plankton {
         }
       }
       const surf = this.water.level;
-      if (this.pos[k + 1] > surf - 0.12 || this.pos[k + 1] < this.terrain.heightAt(this.pos[k], this.pos[k + 2]) || Math.abs(this.pos[k]) > 22 || this.pos[k + 2] > CONFIG.world.zFront - 0.2 || this.pos[k + 2] < CONFIG.world.zBack + 0.2)
+      if (this.pos[k + 1] > surf - 0.12 || this.pos[k + 1] < this.terrain.heightAt(this.pos[k], this.pos[k + 2]) || outsideView(this.pos[k]) || this.pos[k + 2] > CONFIG.world.zFront - 0.2 || this.pos[k + 2] < CONFIG.world.zBack + 0.2)
         this.respawn(i);
     }
     const g = this.points.geometry;

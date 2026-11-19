@@ -30,7 +30,8 @@ export class OceanRenderer {
   ) {
     const W = CONFIG.world;
     const r = CONFIG.water.bevelRadius;
-    const geo = buildWaterGeometry(W.xMin, W.xMax, W.zBack, W.zFront, r, -9.8);
+    // V2: the east deep water goes down to about -11, so the front face reaches lower than v1's -9.8
+    const geo = buildWaterGeometry(W.xMin, W.xMax, W.zBack, W.zFront, r, W.bottomY + 0.6);
 
     const camDir = new THREE.Vector3();
     cam.camera.getWorldDirection(camDir);
@@ -186,7 +187,7 @@ function buildWaterGeometry(x0: number, x1: number, zB: number, zF: number, r: n
   type P = { y: number; z: number; ny: number; nz: number; w: number; kind: number; depth: number };
   const prof: P[] = [];
   // Front face: denser rows near the surface.
-  const frontYs = [yBottom, -7.5, -5.5, -4, -3, -2.4, -2.0, -1.7, -1.45, -1.25, -1.08, -0.94, -0.82];
+  const frontYs = [yBottom, -9.8, -7.5, -5.5, -4, -3, -2.4, -2.0, -1.7, -1.45, -1.25, -1.08, -0.94, -0.82];
   for (const y of frontYs) {
     prof.push({ y, z: zF, ny: 0, nz: 1, w: Math.exp((y + r) / 1.35), kind: 0, depth: -y });
   }
@@ -214,7 +215,16 @@ function buildWaterGeometry(x0: number, x1: number, zB: number, zF: number, r: n
   }
   prof.push({ y: -1.6, z: zB, ny: 0, nz: -1, w: 0.2, kind: 2, depth: 0 });
 
-  const NX = 361;
+  // Columns along x: the straight body plus rounded end caps. Near each end the profile is
+  // eroded along its own normal by r·(1 − cos a) while x follows a quarter circle, so the block
+  // closes with the same soft bevel as the front edge (seen in Full / Top View).
+  const body = Math.round((x1 - x0 - 2 * r) * 6);
+  const capSteps = 8;
+  const cols: { x: number; a: number; side: number }[] = [];
+  for (let i = capSteps; i >= 1; i--) cols.push({ x: x0 + r - r * Math.sin((i / capSteps) * Math.PI * 0.5), a: (i / capSteps) * Math.PI * 0.5, side: -1 });
+  for (let i = 0; i <= body; i++) cols.push({ x: x0 + r + (i / body) * (x1 - x0 - 2 * r), a: 0, side: 0 });
+  for (let i = 1; i <= capSteps; i++) cols.push({ x: x1 - r + r * Math.sin((i / capSteps) * Math.PI * 0.5), a: (i / capSteps) * Math.PI * 0.5, side: 1 });
+  const NX = cols.length;
   const P = prof.length;
   const pos = new Float32Array(NX * P * 3);
   const nor = new Float32Array(NX * P * 3);
@@ -222,15 +232,18 @@ function buildWaterGeometry(x0: number, x1: number, zB: number, zF: number, r: n
   const kind = new Float32Array(NX * P);
   const dep = new Float32Array(NX * P);
   for (let i = 0; i < NX; i++) {
-    const x = x0 + (i / (NX - 1)) * (x1 - x0);
+    const c = cols[i];
+    const d = r * (1 - Math.cos(c.a)),
+      ca = Math.cos(c.a),
+      sa = Math.sin(c.a) * c.side;
     for (let j = 0; j < P; j++) {
       const k = i * P + j;
       const p = prof[j];
-      pos.set([x, p.y, p.z], k * 3);
-      nor.set([0, p.ny, p.nz], k * 3);
+      pos.set([c.x, p.y - p.ny * d, p.z - p.nz * d], k * 3);
+      nor.set([sa, p.ny * ca, p.nz * ca], k * 3);
       wgt[k] = p.w;
       kind[k] = p.kind;
-      dep[k] = p.depth;
+      dep[k] = p.depth + p.ny * d;
     }
   }
   const idx: number[] = [];

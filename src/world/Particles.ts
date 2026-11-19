@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { randZ } from '../config';
-import { CONFIG } from '../config';
+import { CONFIG, randZ, randViewX, viewWindow, zClamp } from '../config';
 import { rand } from '../util/math';
 import { makeBubbleSprite, makeSoftDot } from '../util/textures';
 import type { WaterSurfaceSimulation } from '../water/WaterSurfaceSimulation';
@@ -143,7 +142,7 @@ export class MarineSnow {
     const size = new Float32Array(n);
     const alpha = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      this.pos[i * 3] = rand(-22, 22);
+      this.pos[i * 3] = randViewX();
       this.pos[i * 3 + 1] = rand(-6.5, -0.3);
       this.pos[i * 3 + 2] = randZ(0.4);
       this.base[i * 4] = rand(0, 100);
@@ -175,9 +174,13 @@ export class MarineSnow {
         const f = this.flow.velocityAt(this.pos[k], this.pos[k + 1], this.pos[k + 2], this.fv);
         this.pos[k] += f.x * dt * 1.3;
         this.pos[k + 1] += f.y * dt * 1.3;
-        this.pos[k + 2] = Math.max(-5.8, Math.min(5.8, this.pos[k + 2] + f.z * dt * 1.3));
+        this.pos[k + 2] = zClamp(this.pos[k + 2] + f.z * dt * 1.3, 0.2);
       }
-      if (this.pos[k] > 22) this.pos[k] = -22;
+      // live inside the current view window (wraps around as it drifts or the camera pans)
+      const lo = Math.max(CONFIG.world.xMin + 0.3, viewWindow.cx - viewWindow.halfW),
+        hi = Math.min(CONFIG.world.xMax - 0.3, viewWindow.cx + viewWindow.halfW);
+      if (this.pos[k] > hi) this.pos[k] = lo + ((this.pos[k] - hi) % (hi - lo));
+      else if (this.pos[k] < lo) this.pos[k] = hi - ((lo - this.pos[k]) % (hi - lo));
       const g = this.terrain.heightAt(this.pos[k], this.pos[k + 2]);
       const lvl = this.level;
       if (this.pos[k + 1] < g + 0.1) this.pos[k + 1] = lvl + rand(-3, -0.4);

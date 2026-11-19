@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { L } from '../ui/lang';
+import type { PickResult } from '../creatures/CreatureManager';
 import { CONFIG, depthToZ, zClamp } from '../config';
 import { clamp, lerp, rand } from '../util/math';
 import type { App } from '../core/App';
@@ -47,7 +49,10 @@ export class InteractionManager {
   private hoverValid = false;
   private grabbing = false;
   private grab = { x: 0, z: 0, startY: 0, target: 0 };
-  private editOp: { before: Float32Array; changed: boolean; label: string } | null = null;
+  private editOp: { before: Float32Array; changed: boolean; label: string; sx: number; sz: number; n: number; x0: number; x1: number } | null = null;
+  /** V2 journal: a creature watched for a moment counts as observed. */
+  private observeKey = '';
+  private observeT = 0;
   private sandAcc = 0;
   private bubbleAcc = 0;
   private notifyT = 0;
@@ -55,6 +60,12 @@ export class InteractionManager {
   private currentT = 0;
   private dragZ = 0;
   private pokedOnDown = false;
+  /** The creature pressed on (for press-and-hold reactions). */
+  private downPick: PickResult | null = null;
+  /** The pointer resting on one creature: who, for how long, and when each was last noticed. */
+  private noticeObj: unknown = null;
+  private noticeT = 0;
+  private noticedAt = new Map<unknown, number>();
   readonly brush: GroundMarker;
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
@@ -172,6 +183,12 @@ export class InteractionManager {
       return;
     }
     const step = Math.sign(e.deltaY) * 0.05;
+    // V2: Top View wheel zooms around the pointer (Shift + wheel keeps the brush size)
+    if (app.cam.view === 'top' && !e.shiftKey && !app.selection.dragging) {
+      this.setNdc(e);
+      app.cam.zoomAt(this.ndc.x, this.ndc.y, Math.exp(-Math.sign(e.deltaY) * Math.min(3, Math.abs(e.deltaY) / 100) * 0.12));
+      return;
+    }
     if (app.selection.dragging && !this.top) {
       // Front View: the wheel pushes the dragged object deeper / closer
       this.dragZ = clamp(this.dragZ - step * 12 * 0.5, CONFIG.world.zBack + 0.5, CONFIG.world.zFront - 0.5);
@@ -233,6 +250,8 @@ export class InteractionManager {
         const nearSurface = h.overWater && (h.onTop || (h.dy < 1.0 && h.dy > -1.6));
         if (pick && !(nearSurface && !this.top)) {
           app.creatures.poke(pick);
+          this.downPick = pick;
+          app.notebook.observe(app.creatures.speciesKey(pick), pick.point, app.creatures.sketchSize(pick));
           app.bubbles.emit(pick.point.x, pick.point.y, pick.point.z, 3, 0.1, 0.6);
           this.pokedOnDown = true;
           break;
@@ -260,7 +279,7 @@ export class InteractionManager {
         if (z < CONFIG.world.zBack + 0.3 || z > CONFIG.world.zFront - 0.3) break;
         const surf = app.sim.heightAt(x, z);
         if (app.terrain.heightAt(x, z) > surf - 0.1) {
-          app.ui?.toast('Drop food over the water');
+          app.ui?.toast(L('Drop food over the water', '请在水面上方投放食物'));
           break;
         }
         const n = Math.round(3 + tools.brush.amount * 13);
@@ -279,9 +298,11 @@ export class InteractionManager {
           const p = this.seabedPoint();
           if (!p) break;
           const before = app.terrain.snapshot();
+          app.creations.pruneAt(p.x, p.z, this.islandRadius());
           const added = app.terrain.stampIsland(p.x, p.z, this.islandRadius());
           if (added > 0) {
             app.history.push({ kind: 'sediment', label: 'Island stamp', before });
+            app.creations.addIsland(p.x, p.z, this.islandRadius());
             for (let i = 0; i < 24; i++) {
               const a = rand(0, Math.PI * 2),
                 r = rand(0.5, this.islandRadius());
@@ -292,14 +313,19 @@ export class InteractionManager {
             app.bubbles.emit(p.x, -2, p.z, 14, 1.2);
             app.sim.disturb(p.x, zClamp(p.z, 0.5), -1.4, 1.6);
             app.creatures.seabedDisturbance(p.x, p.z, 1.6);
-            app.ui?.toast('New sand bar — shape it with Add, Smooth or Erase');
-          } else app.ui?.toast('Already land here');
+            app.ui?.toast(L('New sand bar — shape it with Add, Smooth or Erase', '新的小沙洲，可以用加沙、抹平、擦除继续塑形'));
+          } else app.ui?.toast(L('Already land here', '这里已经是陆地了'));
           break;
         }
         this.editOp = {
           before: app.terrain.snapshot(),
           changed: false,
           label: { add: 'Add sand', remove: 'Erase sand', smooth: 'Smooth sand', island: 'Island' }[tools.sandMode],
+          sx: 0,
+          sz: 0,
+          n: 0,
+          x0: Infinity,
+          x1: -Infinity,
         };
         this.sandAcc = 0;
         break;
@@ -308,10 +334,11 @@ export class InteractionManager {
         const p = this.seabedPoint();
         const type = tools.placeType;
         if (!p || !app.selection.canPlace(p.x, p.z, PLACE_RADIUS[type], app.cam.visibleX(0))) {
-          app.ui?.toast("Can't place there — pick open, flat seabed under water");
+          app.ui?.toast(L("Can't place there — pick open, flat seabed under water", '这里放不了，请选水下空旷平坦的海底'));
           break;
         }
         const sel = app.reef.createObject(type, p.x, p.z);
+        app.creations.stamp(sel);
         app.history.push({ kind: 'add', label: `Place ${sel.label}`, sel });
         app.sediment.emitDust(p.x, p.y, p.z, 12, 0.6);
         app.bubbles.emit(p.x, p.y + 0.3, p.z, 5, 0.3);
@@ -370,6 +397,7 @@ export class InteractionManager {
     const app = this.app;
     const held = performance.now() - this.downTime;
     const isClick = isUp && held < 320 && this.movedPx < 8;
+    this.downPick = null;
     if (this.captured !== 'none') {
       if (this.captured === 'game' && isUp) app.games.active?.pointerUp(this.ndc, this.clientPx);
       this.captured = 'none';
@@ -397,7 +425,15 @@ export class InteractionManager {
       }
     }
     if (this.editOp) {
-      if (this.editOp.changed) app.history.push({ kind: 'sediment', label: this.editOp.label, before: this.editOp.before });
+      const op = this.editOp;
+      if (op.changed) app.history.push({ kind: 'sediment', label: op.label, before: op.before });
+      // a pile of added sand becomes a dune in My Ocean (checked a moment later, once it settles)
+      if (op.changed && op.label === 'Add sand' && op.n > 0) {
+        const cx = op.sx / op.n,
+          cz = op.sz / op.n,
+          ext = Math.max(1, (op.x1 - op.x0) / 2);
+        window.setTimeout(() => app.creations.addDune(cx, cz, ext), 2500);
+      }
       this.editOp = null;
     }
     this.currentPrev = null;
@@ -407,7 +443,7 @@ export class InteractionManager {
         app.history.push({ kind: 'move', label: `Move ${rec.sel.label}`, object: rec.sel.object, from: rec.from, to: rec.to, rotFrom: rec.rotFrom, rotTo: rec.rotTo });
         app.sediment.emitDust(rec.to.x, rec.to.y, rec.to.z, 14, 0.5);
         app.creatures.seabedDisturbance(rec.to.x, rec.to.z, 1);
-      } else app.ui?.toast("Can't place there — returned to its spot");
+      } else app.ui?.toast(L("Can't place there — returned to its spot", '这里放不了，已放回原处'));
       this.el.style.cursor = '';
     }
     this.down = false;
@@ -504,6 +540,14 @@ export class InteractionManager {
       app.sim.pull(this.grab.x, this.grab.z, this.grab.target, CONFIG.water.dragStiffness, CONFIG.water.dragRadius, dt);
     }
 
+    // ---- press and hold on a creature: a fish stops to look, the octopus reaches out, a
+    // jellyfish can be guided along
+    if (this.down && this.downPick && this.pokedOnDown) {
+      const held = (performance.now() - this.downTime) / 1000;
+      const jelly = this.downPick.kind === 'jelly';
+      if (jelly ? held > 0.12 : held > 0.45 && this.movedPx < 14) app.creatures.hold(this.downPick, this.waterPoint(), dt);
+    }
+
     // ---- hover inspector: what is this creature doing?
     this.inspectT -= dt;
     if (this.inspectT <= 0) {
@@ -512,6 +556,29 @@ export class InteractionManager {
       if (this.inside && !this.down && tools.tool !== 'select' && tools.tool !== 'place') {
         const r = app.creatures.pick(app.cam.raycaster3(this.ndc.x, this.ndc.y));
         if (r) text = app.creatures.describe(r);
+        // watching the same kind of creature for about a second = observed (World Memory)
+        const key = r ? app.creatures.speciesKey(r) : '';
+        // resting on the same creature for a moment: it notices (once in a while per creature)
+        const who = r ? app.creatures.pickTarget(r) : null;
+        if (who !== null && who === this.noticeObj) {
+          this.noticeT += 0.15;
+          const now = performance.now();
+          if (this.noticeT >= 0.3 && now - (this.noticedAt.get(who) ?? -1e9) > 5000) {
+            this.noticedAt.set(who, now);
+            if (this.noticedAt.size > 64) this.noticedAt.delete(this.noticedAt.keys().next().value);
+            app.creatures.notice(r!);
+          }
+        } else {
+          this.noticeObj = who;
+          this.noticeT = 0;
+        }
+        if (key && key === this.observeKey) {
+          this.observeT += 0.15;
+          if (this.observeT >= 1 && this.observeT < 1.16) app.notebook.observe(key, r!.point, app.creatures.sketchSize(r!));
+        } else {
+          this.observeKey = key;
+          this.observeT = 0;
+        }
       }
       if (text) app.ui?.showTip(text, this.lastPx.x, this.lastPx.y);
       else app.ui?.hideTip();
@@ -671,6 +738,11 @@ export class InteractionManager {
           r = Math.sqrt(Math.random()) * spread;
         app.sediment.emitSand(p.x + Math.cos(a) * r, y + rand(-0.05, 0.05), zClamp(p.z + Math.sin(a) * r, 0.2), 1);
       }
+      op.sx += p.x;
+      op.sz += p.z;
+      op.n++;
+      op.x0 = Math.min(op.x0, p.x);
+      op.x1 = Math.max(op.x1, p.x);
       op.changed = true;
     } else if (mode === 'remove') {
       const removed = app.terrain.removeSediment(p.x, p.z, R, R, CONFIG.sand.removeRate * (0.25 + amount) * dt);

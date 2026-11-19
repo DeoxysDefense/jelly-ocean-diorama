@@ -16,6 +16,9 @@ const ARMS = 8;
  *   hidden (in coral / den) → peek → crawl ↔ explore → buried (camouflaged in sand)
  *   any → retreat (jet to a hiding spot, ink puff) when disturbed.
  */
+/** Colour of a passing flush (the octopus noticing you). */
+const FLUSH = new THREE.Color(0x9a3a24);
+
 export class Octopus {
   readonly group = new THREE.Group();
   readonly pos = new THREE.Vector3();
@@ -47,6 +50,9 @@ export class Octopus {
   private exploreT = 0;
   private camo = 0;
   private annoy = 0;
+  private flush = 0;
+  private reachT = 0;
+  private reachTo = new THREE.Vector3();
   active = true;
   get label() {
     return (
@@ -294,6 +300,26 @@ export class Octopus {
    * Poked / gently disturbed: a hidden octopus gets curious and peeks out; repeated
    * disturbance makes it hide, and only occasionally it releases ink.
    */
+  /** The pointer rests on it: a wave of colour passes over its skin. */
+  blush() {
+    this.flush = 1;
+  }
+
+  /** Pressed and held near it: one arm slowly reaches toward the pointer (if it is out). */
+  reach(p: THREE.Vector3, dt: number) {
+    void dt;
+    if (this.state === 'hidden' || this.state === 'buried') {
+      if (this.state === 'hidden' && this.reachT <= 0) {
+        this.state = 'peek';
+        this.timer = rand(3, 5);
+      }
+      return;
+    }
+    if (this.state === 'retreat') return;
+    this.reachTo.copy(p);
+    this.reachT = 0.4;
+  }
+
   poke(p: THREE.Vector3) {
     this.annoy = Math.min(5, this.annoy + 1);
     if ((this.state === 'hidden' || this.state === 'buried') && this.annoy < 3) {
@@ -325,6 +351,7 @@ export class Octopus {
   }
 
   private puffInk() {
+    this.ctx.note?.('octopusInk', undefined, this.pos);
     const n = this.inkPos.length / 3;
     for (let i = 0; i < n; i++) {
       this.inkPos.set([this.pos.x + rand(-0.1, 0.1), this.pos.y + 0.2 + rand(-0.1, 0.1), this.pos.z + rand(-0.1, 0.1)], i * 3);
@@ -563,6 +590,7 @@ export class Octopus {
           const r = Math.random();
           if (r < 0.35) {
             this.state = 'buried';
+            this.ctx.sight?.('octopusCamo', this.pos);
             this.timer = rand(12, 22);
           } else if (r < 0.75) {
             this.state = 'crawl';
@@ -644,7 +672,33 @@ export class Octopus {
     while (dy < -Math.PI) dy += Math.PI * 2;
     this.yaw += dy * Math.min(1, dt * 3);
 
-    const col = this.baseColor.clone().lerp(this.camoColor, this.camo);
+    // reaching toward the pointer: the arm that points that way stretches out, tip raised
+    if (this.reachT > 0) {
+      this.reachT -= dt;
+      const want = Math.atan2(this.reachTo.z - this.pos.z, this.reachTo.x - this.pos.x) + this.yaw;
+      let best = 0,
+        bd = 9;
+      for (let i = 0; i < ARMS; i++) {
+        const a = Math.PI / 2 + (i - 3.5) * ((Math.PI * 2) / ARMS);
+        const d = Math.abs(Math.atan2(Math.sin(a - want), Math.cos(a - want)));
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      for (const [i, k] of [
+        [best, 1],
+        [(best + 1) % ARMS, 0.35],
+        [(best + ARMS - 1) % ARMS, 0.35],
+      ]) {
+        this.curlT[i] = this.curlT[i] * (1 - k) + 0.35 * k;
+        this.liftT[i] = this.liftT[i] * (1 - k) + 0.45 * k;
+        this.lenT[i] = this.lenT[i] * (1 - k) + 1.3 * k;
+      }
+      this.flush = Math.max(this.flush, 0.35);
+    }
+    this.flush = Math.max(0, this.flush - dt * 0.5);
+    const col = this.baseColor.clone().lerp(this.camoColor, this.camo).lerp(FLUSH, this.flush * 0.6);
     this.skin.color.copy(col);
     ((this as any).armMat as THREE.MeshStandardMaterial).color.copy(col);
 

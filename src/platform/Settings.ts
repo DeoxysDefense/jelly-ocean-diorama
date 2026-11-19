@@ -7,6 +7,10 @@ export interface PersistedSettings {
   mode?: 'play' | 'ambient';
   panelCollapsed?: boolean;
   quality?: 'auto' | 'high' | 'low';
+  /** V2: camera view + pans (Focus x, Top x / z / zoom). */
+  cam?: { view?: string; focusX?: number; topX?: number; topZ?: number; topZoom?: number };
+  /** V2: navigation preferences. */
+  nav?: { drift?: boolean; minimap?: boolean };
 }
 
 const KEY = 'jelly-ocean-settings-v1';

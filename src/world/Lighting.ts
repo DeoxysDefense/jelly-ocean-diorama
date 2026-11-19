@@ -34,6 +34,38 @@ export class Lighting {
   }
 
   private fill: THREE.DirectionalLight;
+  private frameKey = '';
+  /** Changes whenever the shadow camera moved (the shadow map must be re-rendered). */
+  shadowStamp = 0;
+  private lastX = NaN;
+
+  /**
+   * V2: the tray is wider than one shadow map can cover sharply, so the sun's shadow frustum
+   * follows the part of the world in view (v1 size in Focus View, the whole tray in Full View).
+   */
+  frame(cx: number, halfW: number, cz: number) {
+    const ext = Math.max(26, halfW + 8);
+    const texel = (2 * ext) / this.sun.shadow.mapSize.x;
+    const x = Math.round((cx - 1) / (texel * 8)) * texel * 8;
+    this.sun.target.position.set(x, -3, cz);
+    if (x !== this.lastX) {
+      this.lastX = x;
+      this.shadowStamp++;
+    }
+    const key = ext.toFixed(1);
+    if (key !== this.frameKey) {
+      this.frameKey = key;
+      const c = this.sun.shadow.camera;
+      c.left = -ext;
+      c.right = ext;
+      const v = 19 + Math.max(0, ext - 26) * 0.15;
+      c.top = v;
+      c.bottom = -v;
+      c.far = 70 + Math.max(0, ext - 26);
+      c.updateProjectionMatrix();
+      this.shadowStamp++;
+    }
+  }
 
   /** Follows the day / night state: sun or moon key light, ambient sky / ground colours. */
   apply(atm: AtmosphereState) {

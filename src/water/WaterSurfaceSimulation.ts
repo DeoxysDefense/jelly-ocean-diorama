@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG } from '../config';
+import { CONFIG, viewWindow } from '../config';
 import { clamp } from '../util/math';
 import { WaveField } from './WaveField';
 
@@ -14,12 +14,32 @@ import { WaveField } from './WaveField';
  * half-float texture and added to the analytic wind waves in the water vertex shader.
  */
 export class WaterSurfaceSimulation {
-  readonly nx = CONFIG.water.simNX;
-  readonly nz = CONFIG.water.simNZ;
   readonly x0 = CONFIG.world.xMin;
   readonly z0 = CONFIG.world.zBack;
   readonly sizeX = CONFIG.world.xMax - CONFIG.world.xMin;
   readonly sizeZ = CONFIG.world.zFront - CONFIG.world.zBack;
+  readonly nx = Math.round(this.sizeX / CONFIG.water.simCellX) + 1;
+  readonly nz = Math.round(this.sizeZ / CONFIG.water.simCellZ) + 1;
+  /**
+   * V2: tile sleeping. The tray is ~2.5x the v1 area, but ripples only live where something
+   * disturbed the water. Tiles whose height and velocity stay below EPS for a while go to sleep
+   * (zeroed, skipped); any impulse, mask change or active neighbour wakes them again.
+   */
+  static readonly TILE = 16;
+  /** Below ~1 mm of height (slope < 0.5 %), a ripple is invisible: let the tile sleep. */
+  static readonly EPS = 1e-3;
+  /** Extra world units simulated beyond the view window on each side. */
+  static readonly WINDOW_MARGIN = 6;
+  static readonly GRACE = 24;
+  readonly tilesX: number;
+  readonly tilesZ: number;
+  /** Steps left before a quiet tile sleeps (0 = asleep). */
+  readonly tileLife: Uint8Array;
+  private tileTex: Uint8Array;
+  /** Disable to run every cell every step (reference behaviour, tests). */
+  sleep = true;
+  /** Cached terrain height per cell (mask updates only re-compare against the sea level). */
+  private ground: Float32Array | null = null;
   readonly dx: number;
   readonly dz: number;
   readonly h: Float32Array;
@@ -50,21 +70,57 @@ export class WaterSurfaceSimulation {
     this.texture.minFilter = this.texture.magFilter = THREE.LinearFilter;
     this.texture.wrapS = this.texture.wrapT = THREE.ClampToEdgeWrapping;
     this.texture.needsUpdate = true;
+    const T = WaterSurfaceSimulation.TILE;
+    this.tilesX = Math.ceil(this.nx / T);
+    this.tilesZ = Math.ceil(this.nz / T);
+    this.tileLife = new Uint8Array(this.tilesX * this.tilesZ);
+    this.tileTex = new Uint8Array(this.tilesX * this.tilesZ);
   }
 
-  /** Marks cells where terrain rises above the water as walls. */
-  updateMask(terrainHeight: (x: number, z: number) => number) {
+  /**
+   * Marks cells where terrain rises above the water as walls. Pass `terrainChanged = false` when
+   * only the sea level moved (the cached ground heights are reused).
+   */
+  updateMask(terrainHeight: (x: number, z: number) => number, terrainChanged = true) {
+    const n = this.nx * this.nz;
+    if (!this.ground || terrainChanged) {
+      this.ground ??= new Float32Array(n);
+      for (let j = 0; j < this.nz; j++)
+        for (let i = 0; i < this.nx; i++) this.ground[j * this.nx + i] = terrainHeight(this.x0 + i * this.dx, this.z0 + j * this.dz);
+    }
+    const G = this.ground;
+    const lim = this.level - 0.05;
+    const T = WaterSurfaceSimulation.TILE;
     for (let j = 0; j < this.nz; j++)
       for (let i = 0; i < this.nx; i++) {
-        const x = this.x0 + i * this.dx,
-          z = this.z0 + j * this.dz;
         const k = j * this.nx + i;
-        this.mask[k] = terrainHeight(x, z) < this.level - 0.05 ? 1 : 0;
-        if (!this.mask[k]) {
+        const m = G[k] < lim ? 1 : 0;
+        if (m !== this.mask[k]) {
+          this.mask[k] = m;
+          this.tileLife[Math.floor(j / T) * this.tilesX + Math.floor(i / T)] = WaterSurfaceSimulation.GRACE;
+        }
+        if (!m) {
           this.h[k] = 0;
           this.v[k] = 0;
         }
       }
+  }
+
+  /** Wakes the tiles overlapping a world-space box. */
+  private wakeBox(x0: number, x1: number, z0: number, z1: number) {
+    const T = WaterSurfaceSimulation.TILE;
+    const i0 = Math.max(0, Math.floor((x0 - this.x0) / this.dx / T)),
+      i1 = Math.min(this.tilesX - 1, Math.floor((x1 - this.x0) / this.dx / T));
+    const j0 = Math.max(0, Math.floor((z0 - this.z0) / this.dz / T)),
+      j1 = Math.min(this.tilesZ - 1, Math.floor((z1 - this.z0) / this.dz / T));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) this.tileLife[j * this.tilesX + i] = WaterSurfaceSimulation.GRACE;
+  }
+
+  /** Number of awake tiles (diagnostics). */
+  awakeTiles() {
+    let n = 0;
+    for (const l of this.tileLife) if (l) n++;
+    return n;
   }
 
   private idx(x: number, z: number) {
@@ -143,6 +199,7 @@ export class WaterSurfaceSimulation {
   }
 
   private forEachInRadius(x: number, z: number, r: number, fn: (k: number, w: number) => void) {
+    this.wakeBox(x - r * 2, x + r * 2, z - r * 2, z + r * 2);
     const i0 = Math.max(1, Math.floor((x - r * 2 - this.x0) / this.dx));
     const i1 = Math.min(this.nx - 2, Math.ceil((x + r * 2 - this.x0) / this.dx));
     const j0 = Math.max(0, Math.floor((z - r * 2 - this.z0) / this.dz));
@@ -167,8 +224,12 @@ export class WaterSurfaceSimulation {
     // Wind gusts: occasional soft drops make the surface feel alive in strong wind.
     this.gustTimer -= dt;
     if (wind > 0.05 && this.gustTimer <= 0) {
-      this.gustTimer = 0.08 + Math.random() * (0.6 - wind * 0.45);
-      const x = this.x0 + Math.random() * this.sizeX;
+      // gusts are only felt where someone is looking; the rate keeps the v1 density per area
+      const gx0 = Math.max(this.x0, viewWindow.cx - viewWindow.halfW),
+        gx1 = Math.min(this.x0 + this.sizeX, viewWindow.cx + viewWindow.halfW);
+      const span = Math.max(4, gx1 - gx0);
+      this.gustTimer = (0.08 + Math.random() * (0.6 - wind * 0.45)) * (60 / span) * (19 / this.sizeZ);
+      const x = gx0 + Math.random() * (gx1 - gx0);
       const z = this.z0 + Math.random() * this.sizeZ;
       this.disturb(x, z, -(0.15 + Math.random() * 0.5) * wind, 0.35 + Math.random() * 0.4);
     }
@@ -185,54 +246,146 @@ export class WaterSurfaceSimulation {
     const H = this.h,
       V = this.v;
     const maxD = cfg.maxDisplacement;
+    const T = WaterSurfaceSimulation.TILE;
+    const TX = this.tilesX,
+      TZ = this.tilesZ;
+    const life = this.tileLife;
+    if (!this.sleep) life.fill(WaterSurfaceSimulation.GRACE);
+    // Only water in (and just around) the view is simulated; tiles further out go calm. With the
+    // Focus View that is about the v1 cell count, whatever the size of the tray.
+    let tA = 0,
+      tB = TX - 1;
+    if (this.sleep) {
+      const m = WaterSurfaceSimulation.WINDOW_MARGIN;
+      tA = Math.max(0, Math.floor((viewWindow.cx - viewWindow.halfW - m - this.x0) / this.dx / T));
+      tB = Math.min(TX - 1, Math.floor((viewWindow.cx + viewWindow.halfW + m - this.x0) / this.dx / T));
+    }
+    const active: number[] = [];
+    for (let t = 0; t < life.length; t++) {
+      if (!life[t]) continue;
+      const ti = t % TX;
+      if (ti < tA || ti > tB) {
+        // outside the window: settle it (zeroed once, then skipped until it is in view again)
+        life[t] = 0;
+        this.tileTex[t] = 1;
+        const tj = (t - ti) / TX;
+        for (let j = tj * T; j < Math.min(nz, tj * T + T); j++) {
+          const k0 = j * nx + ti * T;
+          H.fill(0, k0, j * nx + Math.min(nx, ti * T + T));
+          V.fill(0, k0, j * nx + Math.min(nx, ti * T + T));
+        }
+        continue;
+      }
+      active.push(t);
+    }
+    const EPS = WaterSurfaceSimulation.EPS;
+    const tileMax = new Float32Array(active.length);
     for (let s = 0; s < sub; s++) {
-      for (let j = 0; j < nz; j++) {
-        const jm = j > 0 ? j - 1 : j,
-          jp = j < nz - 1 ? j + 1 : j;
-        for (let i = 0; i < nx; i++) {
-          const k = j * nx + i;
-          if (!mask[k]) continue;
-          const hc = H[k];
-          const im = i > 0 ? i - 1 : i,
-            ip = i < nx - 1 ? i + 1 : i;
-          // Reflective (Neumann) boundaries at walls: blocked neighbours mirror the centre.
-          const kl = j * nx + im,
-            kr = j * nx + ip,
-            kd = jm * nx + i,
-            ku = jp * nx + i;
-          const hl = mask[kl] ? H[kl] : hc,
-            hr = mask[kr] ? H[kr] : hc;
-          const hd = mask[kd] ? H[kd] : hc,
-            hu = mask[ku] ? H[ku] : hc;
-          const lap = (hl + hr - 2 * hc) * idx2 + (hd + hu - 2 * hc) * idz2;
-          V[k] += (c2 * lap - cfg.restoring * hc - cfg.damping * V[k]) * h;
+      for (const t of active) {
+        const ti = t % TX,
+          tj = (t - ti) / TX;
+        const iA = ti * T,
+          iB = Math.min(nx, iA + T),
+          jA = tj * T,
+          jB = Math.min(nz, jA + T);
+        for (let j = jA; j < jB; j++) {
+          const jm = j > 0 ? j - 1 : j,
+            jp = j < nz - 1 ? j + 1 : j;
+          for (let i = iA; i < iB; i++) {
+            const k = j * nx + i;
+            if (!mask[k]) continue;
+            const hc = H[k];
+            const im = i > 0 ? i - 1 : i,
+              ip = i < nx - 1 ? i + 1 : i;
+            // Reflective (Neumann) boundaries at walls: blocked neighbours mirror the centre.
+            const kl = j * nx + im,
+              kr = j * nx + ip,
+              kd = jm * nx + i,
+              ku = jp * nx + i;
+            const hl = mask[kl] ? H[kl] : hc,
+              hr = mask[kr] ? H[kr] : hc;
+            const hd = mask[kd] ? H[kd] : hc,
+              hu = mask[ku] ? H[ku] : hc;
+            const lap = (hl + hr - 2 * hc) * idx2 + (hd + hu - 2 * hc) * idz2;
+            V[k] += (c2 * lap - cfg.restoring * hc - cfg.damping * V[k]) * h;
+          }
         }
       }
-      for (let k = 0; k < H.length; k++) {
-        if (!mask[k]) continue;
-        let nh = H[k] + V[k] * h;
-        // Soft limit: no extreme stretching or tearing.
-        if (nh > maxD) {
-          nh = maxD;
-          V[k] *= 0.5;
-        } else if (nh < -maxD) {
-          nh = -maxD;
-          V[k] *= 0.5;
-        }
-        H[k] = nh;
+      for (let a = 0; a < active.length; a++) {
+        const t = active[a];
+        const ti = t % TX,
+          tj = (t - ti) / TX;
+        const iA = ti * T,
+          iB = Math.min(nx, iA + T),
+          jA = tj * T,
+          jB = Math.min(nz, jA + T);
+        let mx = tileMax[a];
+        for (let j = jA; j < jB; j++)
+          for (let k = j * nx + iA, kEnd = j * nx + iB; k < kEnd; k++) {
+            if (!mask[k]) continue;
+            let nh = H[k] + V[k] * h;
+            // Soft limit: no extreme stretching or tearing.
+            if (nh > maxD) {
+              nh = maxD;
+              V[k] *= 0.5;
+            } else if (nh < -maxD) {
+              nh = -maxD;
+              V[k] *= 0.5;
+            }
+            H[k] = nh;
+            const e = Math.abs(nh) + Math.abs(V[k]) * 0.1;
+            if (e > mx) mx = e;
+          }
+        tileMax[a] = mx;
+      }
+    }
+    // bookkeeping: quiet tiles count down and sleep (zeroed); lively ones wake their neighbours
+    for (let a = 0; a < active.length; a++) {
+      const t = active[a];
+      this.tileTex[t] = 1;
+      if (!this.sleep) continue;
+      if (tileMax[a] > EPS) {
+        life[t] = WaterSurfaceSimulation.GRACE;
+        const ti = t % TX,
+          tj = (t - ti) / TX;
+        if (ti > 0 && !life[t - 1]) life[t - 1] = 2;
+        if (ti < TX - 1 && !life[t + 1]) life[t + 1] = 2;
+        if (tj > 0 && !life[t - TX]) life[t - TX] = 2;
+        if (tj < TZ - 1 && !life[t + TX]) life[t + TX] = 2;
+      } else if (--life[t] === 0) {
+        const ti = t % TX,
+          tj = (t - ti) / TX;
+        for (let j = tj * T; j < Math.min(nz, tj * T + T); j++)
+          for (let k = j * nx + ti * T, kEnd = j * nx + Math.min(nx, ti * T + T); k < kEnd; k++) {
+            H[k] = 0;
+            V[k] = 0;
+          }
       }
     }
   }
 
+  /** Converts the tiles that changed since the last upload (sleeping tiles keep their texels). */
   uploadTexture() {
     const H = this.h,
-      T = this.texData;
-    for (let k = 0; k < H.length; k++) T[k] = THREE.DataUtils.toHalfFloat(H[k]);
-    this.texture.needsUpdate = true;
+      D = this.texData;
+    const T = WaterSurfaceSimulation.TILE;
+    let any = false;
+    for (let t = 0; t < this.tileTex.length; t++) {
+      if (!this.tileTex[t]) continue;
+      this.tileTex[t] = 0;
+      any = true;
+      const ti = t % this.tilesX,
+        tj = (t - ti) / this.tilesX;
+      for (let j = tj * T; j < Math.min(this.nz, tj * T + T); j++)
+        for (let k = j * this.nx + ti * T, kEnd = j * this.nx + Math.min(this.nx, ti * T + T); k < kEnd; k++) D[k] = THREE.DataUtils.toHalfFloat(H[k]);
+    }
+    if (any) this.texture.needsUpdate = true;
   }
 
   reset() {
     this.h.fill(0);
     this.v.fill(0);
+    this.tileLife.fill(0);
+    this.tileTex.fill(1);
   }
 }

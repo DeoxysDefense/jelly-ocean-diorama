@@ -10,7 +10,7 @@ const EDGE_PATHS = [
   'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
 ];
 
-export async function launchEdge({ profileDir, width = 1920, height = 1080, port = 9333, headless = true }) {
+export async function launchEdge({ profileDir, width = 1920, height = 1080, port = 9333, headless = true, extraArgs = [] }) {
   const exe = EDGE_PATHS.find((p) => existsSync(p));
   if (!exe) throw new Error('Microsoft Edge not found');
   mkdirSync(profileDir, { recursive: true });
@@ -27,6 +27,7 @@ export async function launchEdge({ profileDir, width = 1920, height = 1080, port
     '--disable-backgrounding-occluded-windows',
     '--ignore-gpu-blocklist',
     '--enable-gpu-rasterization',
+    ...extraArgs,
     'about:blank',
   ];
   if (headless) args.unshift('--headless=new');

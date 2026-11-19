@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { Rng } from '../util/math';
+import { CONFIG } from '../config';
 import { patchMaterial } from '../util/shaders';
 import type { TerrainSystem } from './TerrainSystem';
 import * as F from './coralFactory';
+import { ARCHI } from './Archipelago';
 
 export interface Selectable {
   id: string;
@@ -24,6 +26,11 @@ export interface Selectable {
   type?: PlaceType;
   seed?: number;
   placedAt?: number;
+  /** V2 journal: when / under what sky it was placed, and a user-given name. */
+  bornAt?: number;
+  birth?: import('../content/journal').BirthMeta;
+  /** Left by a creature (a hermit crab's old shell): saved with the world, not "made by you". */
+  natural?: boolean;
 }
 
 export type PlaceType = 'anemone' | 'cave' | 'branching' | 'brain' | 'fan' | 'seagrass' | 'rock' | 'shell';
@@ -179,6 +186,345 @@ export class Reef {
       [0.5, -11.8, 0.9],
     ];
     backGrass.forEach(([x, z, h], i) => this.addSeagrass(`grass-back-${i}`, x, z, h, 10 + this.rng.int(0, 8)));
+    this.buildArchipelago();
+    this.buildDeepAndBack();
+  }
+
+  /**
+   * V2 (P1): the western lagoon's reef life. Ids start with `w2-` (older saves don't know them,
+   * so they simply stay at home). The east deep water is deliberately left empty for now.
+   */
+  private buildArchipelago() {
+    // Patch reefs ("bommies") scattered over the western lagoon, each a mixed community, plus
+    // seagrass meadows on the open sand between them. Deterministic (own seed), ids `w2-…`.
+    const rng = new Rng(909);
+    const W = CONFIG.world;
+    type Pick = (id: string, x: number, z: number) => number; // returns the footprint radius
+    const pal = <T,>(list: T[]) => list[rng.int(0, list.length - 1)];
+    const species: { w: number; make: Pick }[] = [
+      { w: 3, make: (id, x, z) => (this.addCoral(id, 'Staghorn coral', F.branchingCoral(rng.int(1, 999), ...pal<[number, number]>([[0xa0585a, 0xffb0a0], [0x7a5a8a, 0xd7a6e8], [0x8a6a3a, 0xffd28a], [0x5a7a6a, 0xc8f0d0]]), rng.range(0.8, 1.15)), x, z, 0.6, 1.0, this.coralMat, true), 0.95) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Acropora', F.branchingCoral(rng.int(1, 999), 0x5a6a8a, pal([0xb0d8f0, 0xd0c8f8, 0xb8f0e0]), rng.range(0.7, 0.95)), x, z, 0.5, 0.85, this.coralMat, true), 0.8) },
+      { w: 3, make: (id, x, z) => (this.addCoral(id, 'Brain coral', F.brainCoral(rng.int(1, 999), pal([0xd0b878, 0x9ad0a0, 0xc8a0a8, 0xd8cf7a]), 0x5a5a3a, rng.range(0.7, 1.15)), x, z, 0.55, 0.5, this.coralMat, true), 0.85) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Plate coral', F.tableCoral(rng.int(1, 999), pal([0x8aa070, 0xa08a6a, 0x7a9aa0]), rng.range(0.8, 1.05)), x, z, 0.7, 0.55, this.coralMat, true), 1.0) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Leather coral', F.softCoral(rng.int(1, 999), pal([0xc8d0a0, 0xd8c060, 0xe0b8c8]), rng.range(0.8, 1.0)), x, z, 0.45, 0.7, this.softMat, true), 0.7) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Tube sponges', F.tubeSponges(rng.int(1, 999), pal([0xe0a030, 0x8a4aa8, 0xd05a3a]), rng.range(0.8, 1.05)), x, z, 0.45, 0.85, this.coralMat, true), 0.7) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Sea fan', F.fanCoral(rng.int(1, 999), pal([0xc0405a, 0xd8803a, 0x7a3a9a, 0xe8c040]), rng.range(0.9, 1.2)), x, z, 0.5, 1.2, this.fanMat, false, rng.range(-0.4, 0.4)), 0.7) },
+      { w: 3, make: (id, x, z) => (this.addCoral(id, 'Pillar coral', F.pillarCoral(rng.int(1, 999), pal([0xc8b48a, 0xb8a070, 0xd8c8a0]), rng.range(0.8, 1.1)), x, z, 0.45, 1.0, this.softMat, true), 0.75) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Barrel sponge', F.barrelSponge(rng.int(1, 999), pal([0xb0583a, 0xa86a6a, 0x9a6a4a, 0x8a5a7a]), rng.range(0.85, 1.15)), x, z, 0.6, 0.85, this.coralMat, true), 0.9) },
+      { w: 3, make: (id, x, z) => (this.addCoral(id, 'Sea whips', F.seaWhips(rng.int(1, 999), pal([0xe0703a, 0xe8c040, 0xc84a8a, 0xf0e0c0]), rng.range(0.8, 1.1)), x, z, 0.35, 1.3, this.fanMat, false), 0.55) },
+      { w: 2, make: (id, x, z) => (this.addCoral(id, 'Mushroom coral', F.mushroomCoral(rng.int(1, 999), pal([0xd8a070, 0xa0c070, 0xc89ab0]), rng.range(0.9, 1.2)), x, z, 0.35, 0.2, this.coralMat, false), 0.45) },
+      { w: 2, make: (id, x, z) => (this.addShell(id, 'Giant clam', F.giantClam(rng.int(1, 999), pal([0x2a6ad0, 0x1aa0a0, 0x6a3ac0, 0x3ab06a]), rng.range(0.85, 1.1)), x, z, 0.32), 0.45) },
+      { w: 2, make: (id, x, z) => (this.addShell(id, 'Sea urchin', F.seaUrchin(rng.int(1, 999), pal([0x2a1a3a, 0x3a1a1a, 0x5a2a6a]), rng.range(0.8, 1.1)), x, z, 0.2), 0.3) },
+      { w: 1, make: (id, x, z) => (this.addShell(id, 'Starfish', F.starfish(pal([0xd0703a, 0xc84a6a, 0x3a6ac8, 0xe0a030]), rng.range(0.8, 1.0)), x, z, 0.22), 0.35) },
+      { w: 2, make: (id, x, z) => (this.addRock(id, x, z, rng.range(0.4, 0.65), rng.range(0.5, 0.65)), 0.9) },
+    ];
+    const total = species.reduce((a, s) => a + s.w, 0);
+    const pickSpecies = () => {
+      let r = rng.range(0, total);
+      for (const s of species) if ((r -= s.w) <= 0) return s;
+      return species[0];
+    };
+    const placed: { x: number; z: number; r: number }[] = [];
+    const level = W.waterLevel;
+    const okSpot = (x: number, z: number, r: number) => {
+      if (z > W.zFront - 0.9 || z < W.zBack + 1 || x < W.xMin + 1.2 || x > -24.5) return false;
+      const g = this.terrain.heightAt(x, z);
+      // deep enough to stay wet at low tide, not on the island slopes
+      if (g > level - 1.6 || g < level - 7) return false;
+      const n = this.terrain.normalAt(x, z);
+      if (n.y < 0.8) return false;
+      return placed.every((p) => Math.hypot(p.x - x, p.z - z) > (p.r + r) * 0.75);
+    };
+    // patch reef centres, laid out by hand for the composition (front, middle and back rows)
+    const patches: [number, number, number][] = [
+      [-28.0, 3.2, 11],
+      [-36.0, 3.6, 10],
+      [-45.5, 2.4, 9],
+      [-28.5, -9.5, 11],
+      [-37.0, -11.0, 11],
+      [-48.0, -6.5, 8],
+      [-30.5, -18.5, 10],
+      [-39.5, -20.5, 7],
+      [-49.0, -18.0, 6],
+    ];
+    patches.forEach(([cx, cz, n], p) => {
+      let made = 0;
+      for (let tries = 0; tries < 160 && made < n; tries++) {
+        const a = rng.range(0, Math.PI * 2),
+          d = Math.sqrt(rng.range(0, 1)) * 3.0;
+        const x = cx + Math.cos(a) * d,
+          z = cz + Math.sin(a) * d * 0.8;
+        if (!okSpot(x, z, 0.6)) continue;
+        const r = pickSpecies().make(`w2-p${p}-${made}`, x, z);
+        placed.push({ x, z, r });
+        made++;
+      }
+    });
+    // a few loners on the open sand: urchins, clams, starfish, mushroom corals, stones
+    const loners = [10, 11, 12, 13, 14];
+    let lone = 0;
+    for (let tries = 0; tries < 300 && lone < 22; tries++) {
+      const x = rng.range(W.xMin + 1.5, -25),
+        z = rng.range(W.zBack + 1.2, W.zFront - 1);
+      if (!okSpot(x, z, 0.4)) continue;
+      const r = species[loners[rng.int(0, loners.length - 1)]].make(`w2-s${lone}`, x, z);
+      placed.push({ x, z, r });
+      lone++;
+    }
+    // seagrass meadows on the open sand between the patches (blades stay under the surface)
+    let meadows = 0;
+    for (let tries = 0; tries < 500 && meadows < 18; tries++) {
+      const x = rng.range(W.xMin + 2, -25),
+        z = rng.range(W.zBack + 1.5, W.zFront - 1.2);
+      const h = rng.range(0.75, 1.25);
+      const g = this.terrain.heightAt(x, z);
+      if (g > level - 1.1 - h * 1.1 || g < level - 6.5) continue;
+      if (!placed.every((p) => Math.hypot(p.x - x, p.z - z) > p.r + 1.6)) continue;
+      const rx = rng.range(1.1, 2.0),
+        rz = rng.range(0.8, 1.4);
+      this.addMeadow(`w2-g${meadows}`, x, z, rx, rz, Math.round(rx * rz * rng.range(60, 90)), h);
+      placed.push({ x, z, r: Math.max(rx, rz) });
+      meadows++;
+    }
+  }
+
+  /**
+   * V2: the east drop-off and deep floor (big sea fans, black coral, giant sponges, boulders on
+   * the ledges), a sparse row of tall silhouettes along the back of the whole tray, and extra
+   * seagrass around the western islands. Ids `w2-d…`, `w2-b…`, `w2-i…`.
+   */
+  private buildDeepAndBack() {
+    const rng = new Rng(4242);
+    const W = CONFIG.world;
+    const level = W.waterLevel;
+    const placed: { x: number; z: number; r: number }[] = this.selectables.map((s) => ({ x: s.object.position.x, z: s.object.position.z, r: s.radius }));
+    const free = (x: number, z: number, r: number) => placed.every((p) => Math.hypot(p.x - x, p.z - z) > (p.r + r) * 0.8);
+    const spot = (x0: number, x1: number, z0: number, z1: number, minD: number, maxD: number, r: number, minNy: number) => {
+      for (let i = 0; i < 40; i++) {
+        const x = rng.range(x0, x1),
+          z = rng.range(Math.max(z0, W.zBack + 1), Math.min(z1, W.zFront - 0.9));
+        const g = this.terrain.heightAt(x, z);
+        const d = level - g;
+        if (d < minD || d > maxD) continue;
+        if (this.terrain.normalAt(x, z).y < minNy) continue;
+        if (!free(x, z, r)) continue;
+        return [x, z] as [number, number];
+      }
+      return null;
+    };
+    const pal = <T,>(list: T[]) => list[rng.int(0, list.length - 1)];
+    type Make = (id: string, x: number, z: number) => number;
+    const bigFan: Make = (id, x, z) => (this.addCoral(id, 'Sea fan', F.fanCoral(rng.int(1, 999), pal([0xa02838, 0xd06a2a, 0x6a2a8a, 0xd8b030]), rng.range(1.5, 2.2)), x, z, 0.7, 2.2, this.fanMat, false, rng.range(-0.5, 0.5)), 1.0);
+    const blackCoral: Make = (id, x, z) => (this.addCoral(id, 'Black coral', F.seaWhips(rng.int(1, 999), pal([0x3a2a24, 0x4a3a2a, 0x2a2a2a]), rng.range(1.3, 1.8)), x, z, 0.5, 1.9, this.fanMat, false), 0.8);
+    const sponge: Make = (id, x, z) => (this.addCoral(id, 'Barrel sponge', F.barrelSponge(rng.int(1, 999), pal([0xb0583a, 0xa86a6a, 0x8a5a7a]), rng.range(1.1, 1.4)), x, z, 0.8, 1.0, this.coralMat, true), 1.1);
+    const smallSponge: Make = (id, x, z) => (this.addCoral(id, 'Barrel sponge', F.barrelSponge(rng.int(1, 999), pal([0xb0583a, 0xa86a6a, 0x8a5a7a]), rng.range(0.8, 1.0)), x, z, 0.6, 0.7, this.coralMat, true), 0.8);
+    const tubes: Make = (id, x, z) => (this.addCoral(id, 'Tube sponges', F.tubeSponges(rng.int(1, 999), pal([0xd05a3a, 0x8a4aa8, 0xe0a030]), rng.range(1.1, 1.4)), x, z, 0.55, 1.1, this.coralMat, true), 0.8);
+    const plate: Make = (id, x, z) => (this.addCoral(id, 'Plate coral', F.tableCoral(rng.int(1, 999), pal([0x8a9a7a, 0x7a8aa0, 0xa08a6a]), rng.range(1.0, 1.3)), x, z, 0.8, 0.6, this.coralMat, true), 1.1);
+    const brain: Make = (id, x, z) => (this.addCoral(id, 'Brain coral', F.brainCoral(rng.int(1, 999), pal([0xb0a070, 0x9ab0a0, 0xc8a0a8]), 0x5a5a3a, rng.range(0.9, 1.3)), x, z, 0.6, 0.55, this.coralMat, true), 0.9);
+    const pillar: Make = (id, x, z) => (this.addCoral(id, 'Pillar coral', F.pillarCoral(rng.int(1, 999), pal([0xc8b48a, 0xb8a070]), rng.range(1.1, 1.4)), x, z, 0.5, 1.4, this.softMat, true), 0.8);
+    const whips: Make = (id, x, z) => (this.addCoral(id, 'Sea whips', F.seaWhips(rng.int(1, 999), pal([0xe0703a, 0xe8c040, 0xc84a8a]), rng.range(1.1, 1.5)), x, z, 0.4, 1.7, this.fanMat, false), 0.6);
+    const boulder: Make = (id, x, z) => (this.addRock(id, x, z, rng.range(0.7, 1.15), rng.range(0.5, 0.7)), 1.3);
+    const weighted = (list: [Make, number][]) => {
+      let tot = 0;
+      for (const [, w] of list) tot += w;
+      let r = rng.range(0, tot);
+      for (const [m, w] of list) if ((r -= w) <= 0) return m;
+      return list[0][0];
+    };
+    const fill = (prefix: string, n: number, area: [number, number, number, number], depth: [number, number], minNy: number, kinds: [Make, number][]) => {
+      let made = 0;
+      for (let tries = 0; tries < n * 6 && made < n; tries++) {
+        const p = spot(area[0], area[1], area[2], area[3], depth[0], depth[1], 0.8, minNy);
+        if (!p) continue;
+        const r = weighted(kinds)(`${prefix}${made}`, p[0], p[1]);
+        placed.push({ x: p[0], z: p[1], r });
+        made++;
+      }
+    };
+    // `dry` passes consume exactly the same random numbers but build nothing: the first deep
+    // layout was replaced (too dense and too bright), and keeping the random sequence intact
+    // keeps every later object (back row, island meadows) exactly where it was.
+    const self = this as unknown as { addCoral: unknown; addRock: unknown };
+    const realCoral = self.addCoral,
+      realRock = self.addRock;
+    const dryRun = <T,>(fn: () => T): T => {
+      self.addCoral = (_id: string, _l: string, geo: THREE.BufferGeometry, _x: number, _z: number, _r: number, _h: number, _m: unknown, _hs: boolean, _rot = this.rng.range(0, Math.PI * 2)) => {
+        geo.dispose();
+        return null;
+      };
+      self.addRock = () => {
+        this.rng.range(0, 50);
+        this.rng.range(0, Math.PI * 2);
+        return null;
+      };
+      try {
+        return fn();
+      } finally {
+        self.addCoral = realCoral;
+        self.addRock = realRock;
+      }
+    };
+    const D = { x0: 26, x1: 39 };
+    // (replaced deep layout — dry, see above)
+    dryRun(() => fill('w2-d', 34, [D.x0, D.x1, W.zBack, W.zFront], [2.5, 10], 0.6, [
+      [bigFan, 4],
+      [blackCoral, 3],
+      [sponge, 3],
+      [tubes, 2],
+      [plate, 2],
+      [brain, 2],
+      [whips, 2],
+      [boulder, 3],
+    ]));
+    dryRun(() =>
+      fill('w2-dd', 10, [D.x1, W.xMax - 1.5, W.zBack, W.zFront], [7, 12], 0.75, [
+        [boulder, 3],
+        [bigFan, 2],
+        [sponge, 2],
+        [blackCoral, 1],
+      ]),
+    );
+    // the centre of the back row has no pillar corals (they read as odd columns behind the reef)
+    const noPillar: Make = (id, x, z) => dryRun(() => pillar(id, x, z));
+    // the back of the tray (z < -13.8), from the far west to the drop-off: slender silhouettes
+    // that read through the blue haze (behind the main island only fans, whips and rocks)
+    fill('w2-b', 16, [W.xMin + 1.5, -22, W.zBack, -13.8], [1.6, 9], 0.75, [
+      [bigFan, 3],
+      [whips, 3],
+      [pillar, 2],
+      [smallSponge, 1],
+      [boulder, 3],
+      [brain, 1],
+      [tubes, 1],
+    ]);
+    fill('w2-bc', 12, [-22, D.x0, W.zBack, -13.8], [1.6, 9], 0.75, [
+      [bigFan, 3],
+      [whips, 3],
+      [noPillar, 1],
+      [boulder, 3],
+    ]);
+    // seagrass around the western islands (and a few in the back lagoon)
+    const rings: [number, number, number, number][] = [
+      [ARCHI.cay.x, ARCHI.cay.z, ARCHI.cay.rx + 2.5, ARCHI.cay.rz + 2.8],
+      [ARCHI.granite.x, ARCHI.granite.z, ARCHI.granite.r + 3, ARCHI.granite.r + 2.8],
+      [ARCHI.rocks.x, ARCHI.rocks.z, ARCHI.rocks.r + 2.2, ARCHI.rocks.r + 2],
+    ];
+    let m = 0;
+    for (let tries = 0; tries < 400 && m < 16; tries++) {
+      const [cx, cz, rx, rz] = rings[tries % rings.length];
+      const a = rng.range(0, Math.PI * 2),
+        k = rng.range(0.9, 1.6);
+      const x = cx + Math.cos(a) * rx * k,
+        z = cz + Math.sin(a) * rz * k;
+      if (z > W.zFront - 1 || z < W.zBack + 1.2 || x > -24.5 || x < W.xMin + 1.5) continue;
+      const h = rng.range(0.7, 1.15);
+      const g = this.terrain.heightAt(x, z);
+      if (g > level - 1.1 - h * 1.1 || g < level - 6.5) continue;
+      if (!free(x, z, 1.1)) continue;
+      const mrx = rng.range(1.0, 1.8),
+        mrz = rng.range(0.7, 1.2);
+      this.addMeadow(`w2-i${m}`, x, z, mrx, mrz, Math.round(mrx * mrz * rng.range(60, 90)), h);
+      placed.push({ x, z, r: Math.max(mrx, mrz) });
+      m++;
+    }
+    this.buildDeepReef(this.selectables.map((s) => ({ x: s.object.position.x, z: s.object.position.z, r: s.radius })));
+  }
+
+  /**
+   * The drop-off and the deep floor: sparse, small and muted — a few 3D gorgonian bushes, black
+   * coral, sponges and boulders on the upper ledges, thinning out with depth so the deep water
+   * stays quiet and a little mysterious. Ids `w2-e…`.
+   */
+  private buildDeepReef(placed: { x: number; z: number; r: number }[]) {
+    const rng = new Rng(8080);
+    const W = CONFIG.world;
+    const level = W.waterLevel;
+    const free = (x: number, z: number, r: number) => placed.every((p) => Math.hypot(p.x - x, p.z - z) > (p.r + r) * 0.9);
+    const pal = <T,>(list: T[]) => list[rng.int(0, list.length - 1)];
+    const muted = [0x8a5f62, 0x8f7a52, 0x6f6478, 0x6c7252, 0x9a8a72, 0x5f6a72];
+    const dark = [0x3a2e2a, 0x2e2c2a, 0x3a3430];
+    type Make = (id: string, x: number, z: number, deep: number) => number;
+    const bush: Make = (id, x, z, deep) => (this.addCoral(id, 'Sea rod', F.gorgonianBush(rng.int(1, 999), deep > 0.5 ? pal(dark) : pal(muted), rng.range(0.75, 1.05) * (1 - 0.15 * deep)), x, z, 0.5, 0.9, this.fanMat, false), 0.7);
+    const black: Make = (id, x, z) => (this.addCoral(id, 'Black coral', F.gorgonianBush(rng.int(1, 999), pal(dark), rng.range(0.8, 1.1)), x, z, 0.5, 1.0, this.fanMat, false), 0.7);
+    const sponge: Make = (id, x, z) => (this.addCoral(id, 'Barrel sponge', F.barrelSponge(rng.int(1, 999), pal([0x7a5a4a, 0x6a5a5a, 0x6a5a62]), rng.range(0.7, 0.9)), x, z, 0.55, 0.6, this.coralMat, true), 0.7);
+    const plate: Make = (id, x, z) => (this.addCoral(id, 'Plate coral', F.tableCoral(rng.int(1, 999), pal([0x7a8270, 0x707a82, 0x8a7a68]), rng.range(0.7, 0.9)), x, z, 0.6, 0.45, this.coralMat, true), 0.8);
+    const brain: Make = (id, x, z) => (this.addCoral(id, 'Brain coral', F.brainCoral(rng.int(1, 999), pal([0x8a8064, 0x7a8478]), 0x4a4a38, rng.range(0.7, 0.9)), x, z, 0.5, 0.45, this.coralMat, true), 0.7);
+    const boulder: Make = (id, x, z) => (this.addRock(id, x, z, rng.range(0.45, 0.8), rng.range(0.5, 0.7)), 0.9);
+    const place = (prefix: string, n: number, x0: number, x1: number, depth: [number, number], kinds: [Make, number][]) => {
+      let made = 0;
+      for (let tries = 0; tries < n * 12 && made < n; tries++) {
+        const x = rng.range(x0, x1),
+          z = rng.range(W.zBack + 1, W.zFront - 0.9);
+        const g = this.terrain.heightAt(x, z);
+        const d = level - g;
+        if (d < depth[0] || d > depth[1] || this.terrain.normalAt(x, z).y < 0.7 || !free(x, z, 0.7)) continue;
+        let tot = 0;
+        for (const [, w] of kinds) tot += w;
+        let r = rng.range(0, tot);
+        let m = kinds[0][0];
+        for (const [k, w] of kinds) if ((r -= w) <= 0) {
+          m = k;
+          break;
+        }
+        const deep = Math.min(1, Math.max(0, (d - 3) / 7));
+        placed.push({ x, z, r: m(`${prefix}${made}`, x, z, deep) });
+        made++;
+      }
+    };
+    // upper ledges: a little life
+    place('w2-e', 9, 26, 34, [2.5, 6], [
+      [bush, 3],
+      [plate, 1],
+      [brain, 1],
+      [sponge, 1],
+      [boulder, 2],
+    ]);
+    // lower slope: darker and sparser
+    place('w2-em', 5, 29, 38, [6, 9.5], [
+      [bush, 2],
+      [black, 2],
+      [boulder, 2],
+    ]);
+    // the deep floor: almost empty
+    place('w2-ed', 3, 38, W.xMax - 2, [8.5, 12], [
+      [boulder, 2],
+      [black, 1],
+    ]);
+  }
+
+  /** A wide seagrass meadow in one instanced mesh (cheaper than many small tufts). */
+  private addMeadow(id: string, x: number, z: number, rx: number, rz: number, count: number, h: number) {
+    const blade = F.seagrassBlade(1);
+    const mesh = new THREE.InstancedMesh(blade, this.grassMat, count);
+    const phases = new Float32Array(count);
+    const m4 = new THREE.Matrix4();
+    const y0 = this.groundY(x, z, 0.3);
+    for (let i = 0; i < count; i++) {
+      const a = this.rng.range(0, Math.PI * 2),
+        r = Math.sqrt(this.rng.range(0, 1));
+      const px = Math.cos(a) * r * rx,
+        pz = Math.sin(a) * r * rz;
+      // denser and taller in the middle of the meadow
+      const s = h * this.rng.range(0.55, 1.1) * (1 - 0.35 * r);
+      const gy = this.terrain.heightAt(x + px, z + pz) - y0;
+      m4.compose(
+        new THREE.Vector3(px, gy - 0.03, pz),
+        new THREE.Quaternion().setFromEuler(new THREE.Euler(this.rng.range(-0.12, 0.12), this.rng.range(-0.8, 0.8), this.rng.range(-0.15, 0.15))),
+        new THREE.Vector3(s * 0.9, s, s),
+      );
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, new THREE.Color().setHSL(this.rng.range(0.2, 0.3), this.rng.range(0.4, 0.6), this.rng.range(0.26, 0.42)));
+      phases[i] = this.rng.range(0, 6.28);
+    }
+    blade.setAttribute('aPhase', new THREE.InstancedBufferAttribute(phases, 1));
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.computeBoundingSphere();
+    const g = new THREE.Group();
+    g.add(mesh);
+    g.position.set(x, y0, z);
+    this.group.add(g);
+    return this.register(id, 'seagrass', 'Seagrass meadow', g, Math.max(rx, rz), h, false);
   }
 
   private anemonePalettes: [number, number, number][] = [

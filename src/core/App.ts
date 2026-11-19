@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONFIG, DEFAULTS } from '../config';
+import { CONFIG, DEFAULTS, outsideView, viewWindow, zCentre } from '../config';
 import { CameraManager } from './CameraManager';
 import { RenderPipeline } from './RenderPipeline';
 import { EnvironmentController } from './EnvironmentController';
@@ -11,6 +11,9 @@ import { Sky } from '../world/Sky';
 import { Lighting } from '../world/Lighting';
 import { Island } from '../world/Island';
 import { Reef } from '../world/Reef';
+import { Archipelago } from '../world/Archipelago';
+import { Plinth } from '../world/Plinth';
+import { Habitat } from '../world/Habitat';
 import { Bubbles, MarineSnow, pointScale } from '../world/Particles';
 import { CurrentStreaks } from '../world/CurrentStreaks';
 import { SedimentSimulation } from '../world/SedimentSimulation';
@@ -39,6 +42,18 @@ import { OceanEventManager } from '../features/OceanEvents';
 import { Magnifier } from '../features/Magnifier';
 import { MiniGameManager } from '../features/MiniGames';
 import { FeatureUI } from '../ui/FeatureUI';
+import { CameraNav } from '../features/CameraNav';
+import { MiniMap } from '../features/MiniMap';
+import { OceanJournal } from '../features/OceanJournal';
+import { WorldMemory } from '../features/WorldMemory';
+import { Creations } from '../features/Creations';
+import { RareVisitors } from '../features/RareVisitors';
+import { AmbientSound } from '../features/AmbientSound';
+import { Intro } from '../features/Intro';
+import { L, setUiLang } from '../ui/lang';
+import { FramePacer, LOW_LEVEL, QUALITY_LADDER } from './FramePacer';
+import { PerfHud } from '../ui/PerfHud';
+import { FieldNotebook } from '../features/FieldNotebook';
 
 type Quality = 'auto' | 'high' | 'low';
 
@@ -60,6 +75,8 @@ export class App {
   readonly ocean: OceanRenderer;
   readonly island: Island;
   readonly reef: Reef;
+  readonly archipelago: Archipelago;
+  readonly plinth = new Plinth();
   readonly bubbles: Bubbles;
   readonly streaks: CurrentStreaks;
   readonly snow: MarineSnow;
@@ -85,6 +102,18 @@ export class App {
   readonly magnifier: Magnifier;
   readonly games: MiniGameManager;
   featureUI: FeatureUI | null = null;
+  nav!: CameraNav;
+  minimap!: MiniMap;
+  /** V2 (P2) Ocean Journal: world memory, what you made, and the diary UI. */
+  readonly memory = new WorldMemory();
+  readonly creations: Creations;
+  journal!: OceanJournal;
+  /** V2 (P3) rare visitors and the Field Notebook. */
+  readonly visitors: RareVisitors;
+  readonly sound: AmbientSound;
+  readonly notebook: FieldNotebook;
+  private hutPos = new THREE.Vector3();
+  private tmpV = new THREE.Vector3();
   private lastDt = 1 / 60;
   private lastLevel = 0;
   private lastMode = 'play';
@@ -92,14 +121,19 @@ export class App {
   private clock = new THREE.Clock();
   time = 0;
   private paused = false;
-  private lastFrame = 0;
-  private frameTimes: number[] = [];
+  /** Even frame pacing on any refresh rate + automatic quality ladder. */
+  readonly pacer = new FramePacer();
+  /** Hidden performance readout: F9 (or ?perf=1). */
+  perfHud: PerfHud | null = null;
+  /** First-visit welcome (water fills in, fish arrive, a few short cards). */
+  intro: Intro | null = null;
+  private shadowStamp = -1;
   private pixelRatio = 1;
   private quality: Quality = 'auto';
   private frameCount = 0;
   private maskVersion = -1;
-  private ctx: WorldContext;
-  stats = { fps: 0, frameMs: 0, pixelRatio: 1 };
+  readonly ctx: WorldContext;
+  stats = { fps: 0, frameMs: 0, stepMs: 0, pixelRatio: 1, level: 0, miss: 0, refreshHz: 60 };
 
   constructor(private host: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false });
@@ -112,14 +146,17 @@ export class App {
     host.appendChild(this.renderer.domElement);
     this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
-      this.ui?.toast('Graphics context lost — reload to restore');
+      this.ui?.toast(L('Graphics context lost — reload to restore', '图形环境丢失，请刷新页面恢复'));
     });
 
     this.pipeline = new RenderPipeline(this.renderer);
     this.ocean = new OceanRenderer(this.sim, this.colors, this.pipeline, this.cam);
     this.island = new Island(this.terrain);
     this.reef = new Reef(this.terrain);
-    this.world.add(this.sky.mesh, this.lighting.group, this.terrain.group, this.ocean.worldGroup, this.island.group, this.reef.group);
+    this.archipelago = new Archipelago(this.terrain, this.island);
+    this.creations = new Creations(this.terrain, this.reef);
+    this.world.add(this.sky.mesh, this.lighting.group, this.terrain.group, this.ocean.worldGroup, this.island.group, this.reef.group, this.archipelago.group, this.plinth.group);
+    this.hutPos.set(CONFIG.island.x + 0.35, 1.9, CONFIG.island.z);
     this.waterScene.add(this.ocean.waterMesh);
 
     const food = new FoodSystem(this.terrain, this.sim);
@@ -131,7 +168,8 @@ export class App {
       flow: this.flow,
       obstacles: () => this.reef.obstacles(),
       creatureObstacles: [],
-      visibleX: this.cam.visibleX(0),
+      visibleX: this.cam.homeVisibleX(),
+      habitat: new Habitat(this.terrain, this.reef),
     };
     this.creatures = new CreatureManager(this.ctx, food);
     this.world.add(this.creatures.group);
@@ -141,7 +179,8 @@ export class App {
     this.bubbles = new Bubbles(this.sim, () => [
       this.reef.denPos.clone().add(new THREE.Vector3(0.3, 0.6, -0.3)),
       this.reef.anemonePos.clone(),
-      ...this.reef.selectables.filter((s) => s.kind === 'coral').map((s) => s.object.position.clone().add(new THREE.Vector3(0, s.height * 0.7, 0))),
+      // only corals in view breathe bubbles (the lagoon reefs would otherwise steal them)
+      ...this.reef.selectables.filter((s) => s.kind === 'coral' && !outsideView(s.object.position.x)).map((s) => s.object.position.clone().add(new THREE.Vector3(0, s.height * 0.7, 0))),
     ]);
     this.snow = new MarineSnow(this.terrain);
     this.sediment = new SedimentSimulation(this.terrain, this.sim, () => this.reef.obstacles());
@@ -155,10 +194,23 @@ export class App {
     this.floaters = new Floaters(this.sim, this.terrain, this.flow);
     this.world.add(this.plankton.points, this.rain.lines, this.floaters.group);
     this.i18n = new I18n(this.prefs.data.lang);
+    // one language for the whole interface (set before any panel is built)
+    setUiLang(this.i18n.lang);
+    this.i18n.onChange(() => setUiLang(this.i18n.lang, this.host));
     this.mail = new OceanMail(this, this.prefs);
     this.coconuts = new CoconutGrowth(this, this.prefs);
     this.events = new OceanEventManager(this, this.prefs);
     this.world.add(this.spray.points, this.mail.group, this.coconuts.group, this.events.group);
+    this.visitors = new RareVisitors(this);
+    this.sound = new AmbientSound(this);
+    this.notebook = new FieldNotebook(this);
+    this.world.add(this.visitors.group);
+    this.creatures.extraPick = (rc) => {
+      const v = this.visitors.pick(rc);
+      return v ? { kind: 'visitor', ...v } : null;
+    };
+    this.creatures.extraObstacles = () => this.visitors.obstacles();
+    this.ctx.sight = (k, pos) => this.notebook.behaviour(k, pos);
     food.flow = this.flow;
     this.snow.flow = this.flow;
     this.bubbles.flow = this.flow;
@@ -211,6 +263,12 @@ export class App {
     this.magnifier = new Magnifier(this, this.ui.rootEl);
     this.games = new MiniGameManager(this, this.ui.rootEl);
     this.featureUI = new FeatureUI(this, this.ui.rootEl);
+    // V2: camera navigation (pan / zoom / double-click focus / drift) + minimap & view switcher
+    this.nav = new CameraNav(this, host, s.nav);
+    this.minimap = new MiniMap(this, this.ui.rootEl);
+    this.journal = new OceanJournal(this, this.ui.rootEl);
+    if (s.cam) this.cam.restore(s.cam);
+    this.cam.onMove(() => this.saveSettingsSoon());
     this.tools.onChange(() => {
       this.magnifier.setTool(this.tools.tool === 'magnify' && this.tools.mode === 'play');
       this.featureUI?.refresh();
@@ -228,9 +286,15 @@ export class App {
     this.cam.onChange(() => {
       this.interaction.cancelAll();
       this.resize();
+      this.saveSettingsSoon();
     });
     this.env.onChange(() => this.saveSettings());
     window.addEventListener('resize', () => this.resize());
+    const hud = () => (this.perfHud ??= new PerfHud(this.host)).toggle();
+    if (new URLSearchParams(location.search).get('perf') === '1') hud();
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F9') hud();
+    });
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) this.clock.getDelta();
     });
@@ -299,6 +363,11 @@ export class App {
 
   /** Restores the original diorama (terrain, objects, food, colour, wind, tool). */
   resetWorld() {
+    // the sea remembers that it started over; what you made is gone with the world
+    this.memory.log('reset');
+    this.creations.clear();
+    this.visitors.stop();
+    this.visitors.clearTraces();
     this.games.exit();
     this.mail.clear();
     this.events.stop();
@@ -328,10 +397,14 @@ export class App {
     if (!p) this.clock.getDelta();
   }
 
+  get qualitySetting() {
+    return this.quality;
+  }
+
   setQuality(q: Quality) {
     this.quality = q;
     this.saveSettings();
-    this.resize();
+    this.applyQualityLevel();
   }
 
   saveSettings() {
@@ -342,7 +415,18 @@ export class App {
       mode: this.tools.mode,
       panelCollapsed: this.ui?.isCollapsed ?? false,
       quality: this.quality,
+      cam: this.cam.state(),
+      nav: this.nav?.state(),
     });
+  }
+  private saveTimer = 0;
+  /** Camera moves fire often: persist them at most twice a second. */
+  saveSettingsSoon() {
+    if (this.saveTimer) return;
+    this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = 0;
+      this.saveSettings();
+    }, 500);
   }
 
   private applyModeQuality() {
@@ -361,65 +445,66 @@ export class App {
     const P = CONFIG.performance;
     const dpr = window.devicePixelRatio || 1;
     let pr = Math.min(dpr, P.maxPixelRatio);
-    if (this.quality === 'low') pr = Math.min(pr, 0.85);
-    if (this.quality === 'auto' && this.pixelRatio > 0) pr = Math.min(pr, this.adaptiveCap ?? pr);
-    if (this.tools.mode === 'ambient') pr *= P.ambientPixelRatioScale;
-    pr = Math.max(P.minPixelRatio, pr);
+    // the quality level caps the number of rendered pixels (only the lower steps do)
+    const q = this.qualityLevel();
+    if (w * h * pr * pr > q.budget) pr = Math.sqrt(q.budget / (w * h));
+    pr = Math.max(Math.min(dpr, P.minPixelRatio), pr);
     this.pixelRatio = pr;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h, false);
     this.cam.resize(w, h);
     this.pipeline.setSize(w, h);
-    const v = this.cam.visibleX(0);
+    // creatures keep the v1 home frame for entrances / exits (main island density unchanged)
+    const v = this.cam.homeVisibleX();
     this.ctx.visibleX.min = v.min;
     this.ctx.visibleX.max = v.max;
     pointScale.value = (h * pr) / this.cam.viewH;
     this.pointH = h * pr;
     this.stats.pixelRatio = pr;
   }
-  private adaptiveCap: number | null = null;
   private pointH = 720;
 
-  /** Simple adaptive resolution: drop pixel ratio when frames are slow, recover when fast. */
-  private adapt(ms: number) {
-    if (this.quality !== 'auto') return;
-    // Gaps far above the target come from a throttled / occluded window, not GPU load.
-    if (ms > 1000 / CONFIG.performance.ambientFPS * 2.5) return;
-    this.frameTimes.push(ms);
-    if (this.frameTimes.length < 90) return;
-    const avg = this.frameTimes.reduce((a, b) => a + b, 0) / this.frameTimes.length;
-    this.frameTimes.length = 0;
-    const target = 1000 / (this.tools.mode === 'ambient' ? CONFIG.performance.ambientFPS : CONFIG.performance.activeFPS);
-    const cur = this.adaptiveCap ?? Math.min(window.devicePixelRatio || 1, CONFIG.performance.maxPixelRatio);
-    if (avg > target * 1.35 && cur > CONFIG.performance.minPixelRatio + 0.05) {
-      this.adaptiveCap = Math.max(CONFIG.performance.minPixelRatio, cur - 0.15);
-      this.resize();
-    } else if (avg < target * 0.75 && this.adaptiveCap !== null) {
-      const next = cur + 0.1;
-      this.adaptiveCap = next >= Math.min(window.devicePixelRatio || 1, CONFIG.performance.maxPixelRatio) ? null : next;
-      this.resize();
-    }
+  /** The quality step in use: fixed for High / Low, adaptive for Auto. */
+  private qualityLevel() {
+    if (this.quality === 'high') return QUALITY_LADDER[0];
+    if (this.quality === 'low') return QUALITY_LADDER[Math.max(LOW_LEVEL, this.pacer.level)];
+    return this.pacer.quality;
+  }
+
+  private applyQualityLevel() {
+    this.pipeline.setSamples(this.qualityLevel().msaa);
+    this.resize();
   }
 
   // --------------------------------------------------------------- loop
   start() {
+    if (this.ui) this.intro = new Intro(this, this.ui.rootEl);
+    this.intro?.play();
+    this.applyQualityLevel();
     const loop = (now: number) => {
       requestAnimationFrame(loop);
       if (this.paused || document.hidden) return;
       const ambient = this.tools.mode === 'ambient';
       const fps = ambient ? CONFIG.performance.ambientFPS : CONFIG.performance.activeFPS;
-      const minInterval = 1000 / fps - 1.5;
-      if (now - this.lastFrame < minInterval) return;
-      const frameGap = now - this.lastFrame;
-      this.lastFrame = now;
-      const dt = Math.min(this.clock.getDelta(), 1 / 15);
+      const frameGap = this.pacer.tick(now, fps);
+      if (!frameGap) return;
+      // simulate exactly the time of the frame slots (even motion, no jitter from rAF timing)
+      const dt = Math.min(Math.max(this.clock.getDelta(), 0), 1 / 15);
       const t0 = performance.now();
       this.step(dt, ambient);
+      const t1 = performance.now();
       this.render(ambient);
       const ms = performance.now() - t0;
-      this.stats.frameMs = this.stats.frameMs * 0.9 + ms * 0.1;
-      this.stats.fps = this.stats.fps * 0.9 + (1000 / Math.max(1, frameGap)) * 0.1;
-      this.adapt(frameGap);
+      const S = this.stats;
+      S.frameMs = S.frameMs * 0.9 + ms * 0.1;
+      S.stepMs = S.stepMs * 0.9 + (t1 - t0) * 0.1;
+      S.fps = S.fps * 0.9 + (1000 / Math.max(1, frameGap)) * 0.1;
+      const next = this.pacer.judge(frameGap, now, this.quality === 'auto');
+      if (next !== null) this.applyQualityLevel();
+      S.level = this.quality === 'auto' ? this.pacer.level : this.quality === 'high' ? 0 : LOW_LEVEL;
+      S.miss = this.pacer.missRatio;
+      S.refreshHz = Math.round(1000 / this.pacer.refresh);
+      this.perfHud?.update(S);
     };
     requestAnimationFrame(loop);
   }
@@ -429,21 +514,27 @@ export class App {
     shared.uTime.value = this.time;
     this.env.update(dt);
     const wind = this.env.wind;
+    this.nav?.update(dt);
     this.cam.update(dt);
     pointScale.value = this.pointH / this.cam.viewH;
+    this.updateViewWindow();
     this.interaction.update(dt, this.time);
     this.flow.update(dt);
     // tide: one sea level for water, terrain shading, creatures and tools
     const atm = this.env.atm;
     this.sim.level = this.env.seaLevel;
+    // first visit: the tray fills with water
+    const fill = this.intro?.levelOverride(this.env.seaLevel) ?? null;
+    if (fill !== null) this.sim.level = fill;
     this.sim.step(dt, wind);
     this.sim.uploadTexture();
     this.terrain.update(dt);
     const levelMoved = Math.abs(this.sim.level - this.lastLevel) > 0.04;
     if ((this.terrain.version !== this.maskVersion || levelMoved) && this.frameCount % 20 === 0) {
+      const terrainChanged = this.terrain.version !== this.maskVersion;
       this.maskVersion = this.terrain.version;
       this.lastLevel = this.sim.level;
-      this.sim.updateMask((x, z) => this.terrain.heightAt(x, z));
+      this.sim.updateMask((x, z) => this.terrain.heightAt(x, z), terrainChanged);
     }
     this.lighting.apply(atm);
     this.ocean.applyAtmosphere(atm, this.sim.level);
@@ -462,12 +553,19 @@ export class App {
     this.streaks.update(dt, this.cam.camera);
     this.snow.update(dt, this.time, wind, ambient);
     this.ocean.update(dt, this.time, ambient, this.cam.blend);
-    this.sky.update(dt, this.time, wind, this.cam.viewW / this.cam.viewH, this.cam.blend, atm);
+    this.sky.update(dt, this.time, wind, this.cam.viewW / this.cam.viewH, Math.max(this.cam.blend, this.cam.fullness * 0.9), atm);
+    this.plinth.update(this.cam.fullness, this.cam.blend);
+    this.minimap?.update(dt);
+    this.journal?.update(dt);
     // V3 systems
     const busy = this.busy;
     this.coconuts.update(dt, wind);
     this.mail.update(dt, wind, busy);
     this.events.update(dt, this.time, busy);
+    this.visitors.update(dt, this.time);
+    this.sound.update(dt);
+    this.intro?.update(dt);
+    this.notebook.update(dt);
     this.games.update(dt, this.time);
     this.spray.update(dt);
     this.featureUI?.update(dt);
@@ -475,10 +573,27 @@ export class App {
     this.frameCount++;
   }
 
+  /** Where the camera looks: particles, gusts, shadows and the cloud mask follow it. */
+  private updateViewWindow() {
+    const cam = this.cam;
+    viewWindow.cx = cam.pose.tx;
+    viewWindow.halfW = cam.viewW / 2 + 4;
+    const look = Math.max(cam.blend, cam.fullness);
+    this.lighting.frame(cam.pose.tx, cam.viewW / 2, zCentre() * look);
+    // keep clouds off the hut wherever it is on screen
+    const p = this.tmpV.copy(this.hutPos).project(cam.camera);
+    const on = Math.abs(p.x) < 1.3 && Math.abs(p.y) < 1.3 ? 1 - cam.blend : 0;
+    this.sky.setHut((p.x + 1) / 2, (p.y + 1) / 2, on);
+  }
+
   render(ambient: boolean) {
-    // In ambient mode refresh the shadow map at a lower rate.
-    this.renderer.shadowMap.autoUpdate = !ambient;
-    if (ambient && this.frameCount % 3 === 0) this.renderer.shadowMap.needsUpdate = true;
+    // the shadow map refreshes every n-th frame (fewer when idle), and at once when it moved
+    const every = Math.max(this.qualityLevel().shadowEvery, ambient ? 2 : 1);
+    this.renderer.shadowMap.autoUpdate = false;
+    if (this.frameCount % every === 0 || this.lighting.shadowStamp !== this.shadowStamp) {
+      this.renderer.shadowMap.needsUpdate = true;
+      this.shadowStamp = this.lighting.shadowStamp;
+    }
     this.pipeline.render(this.world, this.waterScene, this.cam.camera);
     this.magnifier.render(this.lastDt);
   }

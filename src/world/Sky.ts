@@ -28,12 +28,14 @@ export class Sky {
         uDusk: { value: 0 },
         uDay: { value: 1 },
         uRain: { value: 0 },
+        uHut: { value: new THREE.Vector3(0.24, 0.62, 1) },
       },
       vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.99999, 1.0); }`,
       fragmentShader: /* glsl */ `
         varying vec2 vUv;
         uniform float uAspect, uCloud, uTime, uTop, uGlowX, uNight, uDusk, uDay, uRain;
         uniform vec3 uTopC, uMidC, uHorC, uGlowC;
+        uniform vec3 uHut;
         ${GLSL_NOISE}
         vec3 s2l(vec3 c){ return pow(c, vec3(2.2)); }
         void main(){
@@ -61,7 +63,7 @@ export class Sky {
           float n = jFbm(p * vec2(0.55, 0.9) + vec2(0.0, 3.0));
           n += 0.35 * jFbm(p * vec2(1.6, 2.4) + vec2(uCloud * 0.5, 7.0)) - 0.17;
           float band = smoothstep(0.66 - uRain * 0.25, 0.8 - uRain * 0.2, uv.y) * (1.0 - smoothstep(0.92 + uRain * 0.1, 1.0 + uRain * 0.1, uv.y));
-          float hutMask = 1.0 - 0.85 * exp(-pow((uv.x - 0.24) / 0.13, 2.0) - pow((uv.y - 0.62) / 0.14, 2.0)) * (1.0 - uRain);
+          float hutMask = 1.0 - 0.85 * uHut.z * exp(-pow((uv.x - uHut.x) / 0.13, 2.0) - pow((uv.y - uHut.y) / 0.14, 2.0)) * (1.0 - uRain);
           float c = smoothstep(0.5 - uRain * 0.25, 0.78 - uRain * 0.2, n) * band * hutMask;
           vec3 lit = mix(s2l(vec3(0.86, 0.9, 0.95)), vec3(1.0), smoothstep(0.55, 0.85, n));
           lit = mix(lit, s2l(vec3(1.0, 0.72, 0.6)), uDusk * 0.6);
@@ -69,7 +71,7 @@ export class Sky {
           lit *= mix(0.12, 1.0, uDay);
           col = mix(col, lit, c * (0.75 + uRain * 0.2));
           col = mix(col, uHorC, (1.0 - smoothstep(0.38, 0.6, uv.y)) * 0.35);
-          // Top View: light studio backdrop (dimmed at night)
+          // Top / Full View: light studio backdrop (dimmed at night)
           vec2 q = (uv - 0.5) * vec2(uAspect, 1.0);
           vec3 studio = mix(s2l(vec3(0.90, 0.94, 0.95)), s2l(vec3(0.66, 0.76, 0.80)), smoothstep(0.2, 1.1, length(q)));
           studio *= (0.97 + 0.03 * jNoise(uv * vec2(uAspect, 1.0) * 220.0)) * mix(0.25, 1.0, uDay);
@@ -82,6 +84,11 @@ export class Sky {
     this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = -1000;
+  }
+
+  /** Keeps clouds from drifting across the hut: its screen position (uv) and visibility weight. */
+  setHut(u: number, v: number, weight: number) {
+    this.material.uniforms.uHut.value.set(u, v, weight);
   }
 
   update(dt: number, time: number, wind: number, aspect: number, top: number, atm: AtmosphereState) {

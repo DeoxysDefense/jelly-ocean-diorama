@@ -494,3 +494,280 @@ export function seagrassBlade(height = 1) {
   g.setAttribute('color', new THREE.BufferAttribute(col, 3));
   return g;
 }
+
+// ============================================================ V2 (P1b) — more reef species
+
+/** Grid surface helper: fn(u, v) with u, v in [0, 1] → point. Returns a non-indexed geometry. */
+function surface(nu: number, nv: number, fn: (u: number, v: number) => THREE.Vector3) {
+  const pos: number[] = [],
+    idx: number[] = [];
+  for (let i = 0; i <= nu; i++)
+    for (let j = 0; j <= nv; j++) {
+      const p = fn(i / nu, j / nv);
+      pos.push(p.x, p.y, p.z);
+    }
+  for (let i = 0; i < nu; i++)
+    for (let j = 0; j < nv; j++) {
+      const a = i * (nv + 1) + j,
+        b = a + nv + 1;
+      idx.push(a, b, a + 1, a + 1, b, b + 1);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g.toNonIndexed();
+}
+
+/** Pillar coral: a cluster of upright, fuzzy columns with rounded tops. */
+export function pillarCoral(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const geos: THREE.BufferGeometry[] = [];
+  const n = rng.int(5, 8);
+  let maxY = 0.01;
+  for (let i = 0; i < n; i++) {
+    const h = rng.range(0.45, 1.05) * size;
+    const r = rng.range(0.06, 0.1) * size;
+    maxY = Math.max(maxY, h + r);
+    const prof: [number, number][] = [
+      [0.001, 0],
+      [r * 1.15, 0],
+    ];
+    for (let k = 1; k <= 6; k++) prof.push([r * (1 - 0.06 * (k / 6)), (h * k) / 6]);
+    for (let k = 1; k <= 4; k++) {
+      const a = (k / 4) * Math.PI * 0.5;
+      prof.push([Math.max(0.001, r * Math.cos(a)), h + r * 0.8 * Math.sin(a)]);
+    }
+    const ph = rng.range(0, 6);
+    const g = lathe(prof, 14, (a, t) => 1 + 0.08 * Math.sin(a * 7 + ph + t * 9));
+    const az = rng.range(0, Math.PI * 2),
+      d = i === 0 ? 0 : rng.range(0.1, 0.3) * size;
+    g.rotateZ(rng.range(-0.08, 0.08));
+    g.translate(Math.cos(az) * d, 0, Math.sin(az) * d);
+    geos.push(g);
+  }
+  const g = merge(geos);
+  const c0 = C(hex),
+    c1 = C(hex).offsetHSL(0.02, -0.05, 0.16);
+  paint(g, (p, _n, c) => {
+    const t = Math.min(1, p.y / maxY);
+    const fuzz = fbm3(p.x * 70, p.y * 70, p.z * 70, 1);
+    c.copy(c0).lerp(c1, t).multiplyScalar((0.82 + 0.35 * fuzz) * (0.6 + 0.4 * Math.min(1, t * 3)));
+  });
+  return g;
+}
+
+/** Mushroom coral: a free-living oval disc with fine radial septa. */
+export function mushroomCoral(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const R = 0.2 * size * rng.range(0.85, 1.15);
+  const ridges = 34 + rng.int(0, 10);
+  const g = surface(10, 120, (u, v) => {
+    const a = v * Math.PI * 2;
+    const r = Math.max(0.0005, u * R);
+    const dome = 0.06 * size * (1 - u * u) + 0.008 * size;
+    const septa = 0.012 * size * Math.pow(Math.abs(Math.cos(a * ridges * 0.5)), 3) * Math.min(1, u * 3) * (1 - u * 0.3);
+    return new THREE.Vector3(Math.cos(a) * r, dome + septa, Math.sin(a) * r * 0.72);
+  });
+  const c0 = C(hex),
+    c1 = C(hex).offsetHSL(0.03, 0.1, 0.18);
+  paint(g, (p, _n, c) => {
+    const u = Math.hypot(p.x, p.z / 0.72) / R;
+    c.copy(c0)
+      .lerp(c1, Math.min(1, (p.y / (0.07 * size)) * 0.8))
+      .multiplyScalar(0.75 + 0.35 * (1 - u * 0.5));
+    if (u < 0.12) c.multiplyScalar(0.55); // the mouth slit
+  });
+  return g;
+}
+
+/** Giant barrel sponge: a lumpy, deeply ridged vase with a wavy rim and a dark open interior. */
+export function barrelSponge(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const h = rng.range(0.5, 0.75) * size;
+  const r0 = 0.22 * size,
+    r1 = 0.4 * size;
+  const prof: [number, number][] = [
+    [0.001, 0],
+    [r0 * 1.1, 0],
+    [r0 * 1.25, h * 0.2],
+    [r1 * 0.9, h * 0.65],
+    [r1, h * 0.95],
+    [r1 * 0.9, h * 1.02],
+    [r1 * 0.72, h * 0.85],
+    [r0 * 0.85, h * 0.25],
+    [0.001, h * 0.2],
+  ];
+  const ph = rng.range(0, 6);
+  const g = lathe(prof, 64, (a, t) => 1 + 0.16 * Math.pow(Math.abs(Math.sin(a * 5 + ph)), 0.5) * Math.min(1, t * 2.5) + 0.05 * Math.sin(a * 11 + t * 6));
+  // lumpy, irregular body and a wavy rim
+  const pos = g.attributes.position as THREE.BufferAttribute;
+  for (let k = 0; k < pos.count; k++) {
+    const x = pos.getX(k),
+      y = pos.getY(k),
+      z = pos.getZ(k);
+    const n = fbm3(x * 6 + seed, y * 6, z * 6, 3);
+    const k2 = 1 + 0.12 * n;
+    const lean = (y / h) * 0.08 * size;
+    pos.setXYZ(k, x * k2 + lean, y + (y > h * 0.9 ? 0.06 * size * Math.sin(Math.atan2(z, x) * 4 + ph) : 0), z * k2);
+  }
+  g.computeVertexNormals();
+  const outer = C(hex),
+    dark = C(hex).multiplyScalar(0.55),
+    inner = C(hex).multiplyScalar(0.25);
+  const ng = g.toNonIndexed();
+  ng.computeVertexNormals();
+  paint(ng, (p, n, c) => {
+    const radial = new THREE.Vector2(p.x, p.z);
+    const inside = radial.length() > 0 && new THREE.Vector2(n.x, n.z).dot(radial) < -0.001 * radial.length();
+    if (inside) {
+      c.copy(inner);
+      return;
+    }
+    const mott = fbm3(p.x * 9 + seed, p.y * 9, p.z * 9, 3);
+    const pores = fbm3(p.x * 45, p.y * 45, p.z * 45, 1) > 0.3 ? 0.7 : 1;
+    c.copy(outer).lerp(dark, Math.min(1, Math.max(0, 0.5 - mott))).multiplyScalar(pores * (0.75 + 0.35 * (p.y / h)));
+  });
+  return ng;
+}
+
+/** Sea whips: a tuft of thin, tall, gently curving gorgonian rods. */
+export function seaWhips(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const geos: THREE.BufferGeometry[] = [];
+  const n = rng.int(6, 10);
+  let maxY = 0.01;
+  for (let i = 0; i < n; i++) {
+    const az = rng.range(0, Math.PI * 2);
+    const lean = rng.range(0.05, 0.35);
+    const h = rng.range(0.7, 1.45) * size;
+    maxY = Math.max(maxY, h);
+    const base = new THREE.Vector3(Math.cos(az) * 0.03 * size, 0, Math.sin(az) * 0.03 * size);
+    const curve = new THREE.CatmullRomCurve3([
+      base,
+      base.clone().add(new THREE.Vector3(Math.cos(az) * lean * 0.3 * h, h * 0.4, Math.sin(az) * lean * 0.3 * h)),
+      base.clone().add(new THREE.Vector3(Math.cos(az + 0.3) * lean * 0.8 * h, h * 0.75, Math.sin(az + 0.3) * lean * 0.8 * h)),
+      base.clone().add(new THREE.Vector3(Math.cos(az + 0.5) * lean * h, h, Math.sin(az + 0.5) * lean * h)),
+    ]);
+    geos.push(taperedTube(curve, 12, 5, (t) => (0.022 - 0.012 * t) * size, 1, true));
+  }
+  const g = merge(geos);
+  const c0 = C(hex).multiplyScalar(0.7),
+    c1 = C(hex).offsetHSL(0.02, 0.05, 0.12);
+  paint(g, (p, _n, c) => c.copy(c0).lerp(c1, Math.min(1, p.y / maxY)));
+  return g;
+}
+
+/** Long-spined sea urchin. */
+export function seaUrchin(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const geos: THREE.BufferGeometry[] = [];
+  const R = 0.07 * size;
+  geos.push(new THREE.SphereGeometry(R, 14, 10).scale(1, 0.75, 1).translate(0, R * 0.6, 0));
+  const N = 70;
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < N; i++) {
+    // fibonacci directions over the upper ~3/4 of the sphere
+    const y = 1 - (i / (N - 1)) * 1.45;
+    const rr = Math.sqrt(Math.max(0, 1 - y * y));
+    const a = i * 2.39996;
+    const dir = new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr).normalize();
+    const L = rng.range(0.14, 0.24) * size;
+    const p0 = dir.clone().multiplyScalar(R * 0.9).add(new THREE.Vector3(0, R * 0.6, 0));
+    const spine = new THREE.ConeGeometry(0.006 * size, L, 4, 1);
+    spine.translate(0, L / 2, 0);
+    spine.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, dir));
+    spine.translate(p0.x, p0.y, p0.z);
+    geos.push(spine);
+  }
+  const g = merge(geos);
+  const c0 = C(hex);
+  paint(g, (p, _n, c) => c.copy(c0).multiplyScalar(0.7 + 0.5 * Math.min(1, p.y / (0.25 * size))));
+  return g;
+}
+
+/** Giant clam: two ribbed, wavy valves gaping upward around a vivid spotted mantle. */
+export function giantClam(seed: number, mantleHex: number, size = 1) {
+  const rng = new Rng(seed);
+  const L = 0.42 * size,
+    H = 0.16 * size,
+    W = 0.13 * size;
+  const shellA = C(0xd8d2c0),
+    shellB = C(0xa89c84);
+  const valve = (s: number) => {
+    const g = surface(16, 40, (u, v) => {
+      const th = 0.06 + v * (Math.PI - 0.12);
+      const ph = u * Math.PI * 0.5;
+      const rib = 1 + 0.12 * Math.abs(Math.sin(th * 5)) * Math.sin(ph);
+      // wavy, interlocking rim
+      const wave = 0.035 * size * Math.sin(th * 5) * s * Math.pow(Math.sin(ph), 4);
+      return new THREE.Vector3((L / 2) * Math.cos(th), H * (1 - Math.cos(ph)) * Math.sin(th) * rib + wave, s * W * Math.sin(ph) * Math.sin(th) * rib);
+    });
+    paint(g, (p, _n, c) => {
+      const ribs = Math.abs(Math.sin(Math.acos(Math.max(-1, Math.min(1, (2 * p.x) / L))) * 5));
+      c.copy(shellB)
+        .lerp(shellA, 0.4 + 0.6 * ribs)
+        .multiplyScalar(0.8 + 0.25 * (p.y / H));
+    });
+    return g;
+  };
+  const mantle = new THREE.SphereGeometry(1, 24, 10)
+    .scale(L * 0.44, 0.045 * size, W * 0.75)
+    .translate(0, H * 0.82, 0)
+    .toNonIndexed();
+  const m0 = C(mantleHex),
+    m1 = C(mantleHex).offsetHSL(0.05, 0.1, 0.25);
+  const spotSeed = rng.range(0, 50);
+  paint(mantle, (p, _n, c) => {
+    const spot = fbm3(p.x * 55 + spotSeed, p.y * 55, p.z * 55, 1) > 0.2 ? 1 : 0;
+    c.copy(m0)
+      .lerp(m1, 0.5 + 0.5 * Math.sin(p.x * 60))
+      .lerp(new THREE.Color(0.85, 1, 1), spot * 0.55);
+  });
+  return merge([valve(1), valve(-1), mantle]);
+}
+
+/**
+ * Bushy gorgonian (sea rod / sea plume): thin branches growing in all directions from a short
+ * trunk, so it reads as a rounded 3D bush from the side and from above (the flat sea fan only
+ * reads from the front). Muted colours suit the deeper water.
+ */
+export function gorgonianBush(seed: number, hex: number, size = 1) {
+  const rng = new Rng(seed);
+  const geos: THREE.BufferGeometry[] = [];
+  let maxY = 0.01;
+  const grow = (start: THREE.Vector3, dir: THREE.Vector3, len: number, r: number, depth: number) => {
+    const wob = new THREE.Vector3(rng.range(-0.25, 0.25), rng.range(-0.05, 0.15), rng.range(-0.25, 0.25));
+    const d = dir.clone().add(wob).normalize();
+    // branches keep curving upward a little, like real sea rods
+    d.y = Math.max(d.y, 0.25);
+    d.normalize();
+    const end = start.clone().addScaledVector(d, len);
+    const mid = start.clone().lerp(end, 0.5).add(new THREE.Vector3(rng.range(-0.02, 0.02), 0.01, rng.range(-0.02, 0.02)));
+    geos.push(taperedTube(new THREE.QuadraticBezierCurve3(start, mid, end), 3, 5, (t) => r * (1 - 0.3 * t), 1, depth === 0));
+    maxY = Math.max(maxY, end.y);
+    if (depth === 0) return;
+    const kids = depth >= 3 ? 2 : rng.int(1, 3);
+    for (let k = 0; k < kids; k++) {
+      const az = rng.range(0, Math.PI * 2);
+      const spread = rng.range(0.35, 0.8);
+      const nd = d.clone().add(new THREE.Vector3(Math.cos(az) * spread, 0.15, Math.sin(az) * spread)).normalize();
+      grow(end, nd, len * rng.range(0.72, 0.88), r * 0.78, depth - 1);
+    }
+  };
+  const trunks = rng.int(2, 3);
+  for (let t = 0; t < trunks; t++) {
+    const az = (t / trunks) * Math.PI * 2 + rng.range(0, 1);
+    grow(new THREE.Vector3(0, -0.03, 0), new THREE.Vector3(Math.cos(az) * 0.3, 1, Math.sin(az) * 0.3).normalize(), 0.22 * size, 0.03 * size, 5);
+  }
+  const g = merge(geos);
+  const c0 = C(hex).multiplyScalar(0.75),
+    c1 = C(hex).offsetHSL(0.01, -0.05, 0.1);
+  paint(g, (p, _n, c) => {
+    const t = Math.min(1, p.y / maxY);
+    c.copy(c0)
+      .lerp(c1, t)
+      .multiplyScalar(0.85 + 0.25 * fbm3(p.x * 40, p.y * 40, p.z * 40, 1));
+  });
+  return g;
+}

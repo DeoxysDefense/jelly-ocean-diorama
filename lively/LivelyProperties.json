@@ -4,6 +4,21 @@
     "value": false,
     "text": "Interactive Play mode (shows controls; needs Lively mouse input)"
   },
+  "defaultView": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Camera view / 镜头",
+    "items": [
+      "Focus (close-up, v1 framing) / 近景",
+      "Full (the whole archipelago) / 全景",
+      "Top (map, for editing) / 俯视"
+    ]
+  },
+  "autoDrift": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Slow camera drift along the islands / 镜头慢慢漂移"
+  },
   "windStrength": {
     "type": "slider",
     "value": 25,
@@ -84,6 +99,29 @@
       "Normal",
       "Often"
     ]
+  },
+  "visitors": {
+    "type": "dropdown",
+    "value": 2,
+    "text": "Rare visitors (turtles, mantas, dolphins …) / 稀有访客",
+    "items": [
+      "Off / 关",
+      "Few / 少",
+      "Normal / 正常"
+    ]
+  },
+  "sound": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Ambient sound (waves, reef crackle) / 环境声"
+  },
+  "soundVolume": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Sound volume / 音量"
   },
   "quality": {
     "type": "dropdown",

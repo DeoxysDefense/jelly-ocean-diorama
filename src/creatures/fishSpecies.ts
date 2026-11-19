@@ -658,3 +658,257 @@ export const SPECIES: Record<string, FishSpec> = {
     },
   },
 };
+
+// ============================================================ V2 (P1c) — lagoon and deep species
+
+const EXTRA_SPECIES: Record<string, FishSpec> = {
+  /** Sergeant major: a small damselfish, yellow back, five black bars — schools over the patch reefs. */
+  sergeant: {
+    id: 'sergeant',
+    iris: '#c8b040',
+    segments: [18, 12],
+    label: 'Sergeant major',
+    size: 0.36,
+    height: 0.24,
+    width: 0.07,
+    peakT: 0.4,
+    peduncle: 0.32,
+    sag: 0.0,
+    tail: { shape: 'fork', len: 0.26, span: 0.17 },
+    dorsal: { t0: 0.25, t1: 0.85, h: 0.1, peak: 0.2 },
+    anal: { t0: 0.55, t1: 0.85, h: 0.09 },
+    pectoral: { t: 0.26, len: 0.13 },
+    roughness: 0.4,
+    metalness: 0.08,
+    finColor: '#cfd8c0',
+    finEdge: '#202020',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#e8d23a'],
+        [0.4, '#d8e070'],
+        [0.65, '#e0ecf0'],
+        [1, '#f8fafa'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(15,20,25,0.85)';
+      for (let i = 0; i < 5; i++) {
+        const x = W * (0.22 + i * 0.14);
+        ctx.beginPath();
+        ctx.moveTo(x - W * 0.03, 0);
+        ctx.lineTo(x + W * 0.03, 0);
+        ctx.lineTo(x + W * 0.02, H * 0.85);
+        ctx.lineTo(x - W * 0.02, H * 0.85);
+        ctx.fill();
+      }
+    },
+  },
+  /** Parrotfish: big turquoise-and-pink grazer with a beak; drifts between all the reefs. */
+  parrot: {
+    id: 'parrot',
+    iris: '#e0a030',
+    segments: [34, 22],
+    label: 'Parrotfish',
+    size: 1.0,
+    height: 0.22,
+    width: 0.09,
+    peakT: 0.38,
+    peduncle: 0.34,
+    sag: 0.01,
+    tail: { shape: 'lunate', len: 0.24, span: 0.22 },
+    dorsal: { t0: 0.22, t1: 0.86, h: 0.06 },
+    anal: { t0: 0.58, t1: 0.86, h: 0.06 },
+    pectoral: { t: 0.27, len: 0.16 },
+    roughness: 0.32,
+    metalness: 0.05,
+    finColor: '#e888b0',
+    finEdge: '#40c0c0',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#1f8a7a'],
+        [0.5, '#3cc0a8'],
+        [1, '#a8e8d8'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      // pink-edged scales
+      ctx.strokeStyle = 'rgba(240,140,180,0.55)';
+      ctx.lineWidth = 2;
+      for (let x = W * 0.18; x < W * 0.9; x += W * 0.045)
+        for (let y = H * 0.12; y < H * 0.9; y += H * 0.11) {
+          ctx.beginPath();
+          ctx.arc(x + ((y / H) * 10) % 6, y, W * 0.02, -1.2, 1.2);
+          ctx.stroke();
+        }
+      // beak and face marks
+      ctx.fillStyle = '#e8f0d8';
+      ctx.fillRect(0, H * 0.4, W * 0.05, H * 0.25);
+      ctx.strokeStyle = '#f080a8';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(W * 0.04, H * 0.4);
+      ctx.lineTo(W * 0.16, H * 0.3);
+      ctx.stroke();
+    },
+  },
+  /** Moon wrasse: small, bright green with pink lines, never stops moving. */
+  wrasse: {
+    id: 'wrasse',
+    iris: '#d04040',
+    segments: [26, 14],
+    label: 'Moon wrasse',
+    size: 0.5,
+    height: 0.15,
+    width: 0.06,
+    peakT: 0.38,
+    peduncle: 0.4,
+    sag: 0.0,
+    tail: { shape: 'lunate', len: 0.24, span: 0.18 },
+    dorsal: { t0: 0.22, t1: 0.86, h: 0.06 },
+    anal: { t0: 0.55, t1: 0.86, h: 0.05 },
+    pectoral: { t: 0.25, len: 0.13 },
+    roughness: 0.3,
+    metalness: 0.05,
+    finColor: '#e86aa0',
+    finEdge: '#5ad0e0',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#2e9a5a'],
+        [0.5, '#4ec27a'],
+        [1, '#a0e0b0'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      ctx.strokeStyle = 'rgba(232,90,150,0.85)';
+      ctx.lineWidth = 3;
+      for (let i = 0; i < 9; i++) {
+        ctx.beginPath();
+        ctx.moveTo(W * (0.2 + i * 0.075), H * 0.15);
+        ctx.lineTo(W * (0.2 + i * 0.075), H * 0.85);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#e85a96';
+      ctx.fillRect(0, H * 0.25, W * 0.16, H * 0.08);
+      ctx.fillRect(0, H * 0.55, W * 0.16, H * 0.08);
+    },
+  },
+  /** Yellowtail snapper: schools along the drop-off, blue-grey with a yellow stripe and tail. */
+  snapper: {
+    id: 'snapper',
+    iris: '#e04030',
+    segments: [24, 14],
+    label: 'Yellowtail snapper',
+    size: 0.62,
+    height: 0.16,
+    width: 0.07,
+    peakT: 0.38,
+    peduncle: 0.3,
+    sag: 0.0,
+    tail: { shape: 'fork', len: 0.32, span: 0.2 },
+    dorsal: { t0: 0.28, t1: 0.75, h: 0.07, peak: 0.25 },
+    anal: { t0: 0.58, t1: 0.78, h: 0.06 },
+    pectoral: { t: 0.25, len: 0.15 },
+    roughness: 0.35,
+    metalness: 0.3,
+    iridescence: 0.3,
+    finColor: '#f2d040',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#5a6aa0'],
+        [0.4, '#8a9ac0'],
+        [0.6, '#d0d8e8'],
+        [1, '#f4f6fa'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#f2d040';
+      ctx.beginPath();
+      ctx.moveTo(0, H * 0.48);
+      ctx.lineTo(W, H * 0.4);
+      ctx.lineTo(W, H * 0.6);
+      ctx.lineTo(0, H * 0.55);
+      ctx.fill();
+      const t = ctx.createLinearGradient(W * 0.6, 0, W, 0);
+      t.addColorStop(0, 'rgba(242,208,64,0)');
+      t.addColorStop(1, 'rgba(242,208,64,0.9)');
+      ctx.fillStyle = t;
+      ctx.fillRect(0, 0, W, H * 0.5);
+    },
+  },
+  /** Great barracuda: long silver torpedo with dark bars; a small group hangs in the deep water. */
+  barracuda: {
+    id: 'barracuda',
+    iris: '#e0e0c0',
+    segments: [36, 14],
+    label: 'Barracuda',
+    size: 1.45,
+    height: 0.075,
+    width: 0.055,
+    peakT: 0.42,
+    peduncle: 0.35,
+    sag: 0.0,
+    tail: { shape: 'fork', len: 0.18, span: 0.11 },
+    dorsal: { t0: 0.42, t1: 0.5, h: 0.05, peak: 0.3 },
+    anal: { t0: 0.72, t1: 0.8, h: 0.04 },
+    pectoral: { t: 0.24, len: 0.08 },
+    roughness: 0.25,
+    metalness: 0.6,
+    iridescence: 0.5,
+    finColor: 'rgba(140,150,160,1)',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#3a4a58'],
+        [0.4, '#8a9aa8'],
+        [0.6, '#dfe6ea'],
+        [1, '#f6f8f8'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(30,40,50,0.45)';
+      for (let i = 0; i < 18; i++) {
+        const x = W * (0.12 + i * 0.045);
+        ctx.fillRect(x, H * 0.12, W * 0.018, H * 0.3);
+      }
+      ctx.fillStyle = 'rgba(20,25,30,0.6)';
+      for (let i = 0; i < 14; i++) ctx.fillRect(W * (0.5 + Math.random() * 0.4), H * (0.55 + Math.random() * 0.15), 4, 4);
+    },
+  },
+  /** Grouper: a heavy, patient fish that hovers by the rocks of the drop-off. */
+  grouper: {
+    id: 'grouper',
+    iris: '#d0a040',
+    segments: [34, 22],
+    label: 'Grouper',
+    size: 1.35,
+    height: 0.24,
+    width: 0.12,
+    peakT: 0.36,
+    peduncle: 0.42,
+    sag: 0.02,
+    tail: { shape: 'round', len: 0.22, span: 0.2 },
+    dorsal: { t0: 0.22, t1: 0.86, h: 0.09, peak: 0.2 },
+    anal: { t0: 0.6, t1: 0.86, h: 0.08 },
+    pectoral: { t: 0.28, len: 0.18 },
+    roughness: 0.55,
+    metalness: 0.0,
+    finColor: '#6a5040',
+    finEdge: '#3a2a20',
+    paint(ctx, W, H) {
+      ctx.fillStyle = grad(ctx, H, [
+        [0, '#4a3a2a'],
+        [0.5, '#7a6248'],
+        [1, '#b8a080'],
+      ]);
+      ctx.fillRect(0, 0, W, H);
+      // mottled blotches and pale spots
+      for (let i = 0; i < 26; i++) {
+        ctx.fillStyle = 'rgba(40,28,18,0.4)';
+        ctx.beginPath();
+        ctx.ellipse(Math.random() * W, Math.random() * H, W * 0.04, H * 0.09, Math.random() * 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(230,220,190,0.55)';
+      for (let i = 0; i < 70; i++) {
+        ctx.beginPath();
+        ctx.arc(Math.random() * W, Math.random() * H, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    },
+  },
+};
+Object.assign(SPECIES, EXTRA_SPECIES);

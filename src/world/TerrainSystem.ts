@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { clamp, smoothstep } from '../util/math';
 import { fbm2 } from '../util/noise';
 import { GLSL_NOISE, shared } from '../util/shaders';
+import { archipelagoHeight } from './Archipelago';
 
 /**
  * Seabed + island terrain.
@@ -12,7 +13,8 @@ import { GLSL_NOISE, shared } from '../util/shaders';
  * layered sand / sediment / rock strata, like a resin diorama.
  */
 export class TerrainSystem {
-  readonly nx = 361;
+  /** 1/6 world unit per column (v1 spacing) across the whole width. */
+  readonly nx = Math.round((CONFIG.world.xMax - CONFIG.world.xMin) * 6) + 1;
   /** ~0.2 world units per row across the full depth. */
   readonly nz = Math.round((CONFIG.world.zFront - CONFIG.world.zBack) / 0.2) + 1;
   readonly x0 = CONFIG.world.xMin;
@@ -32,6 +34,8 @@ export class TerrainSystem {
   private dirty = { any: false, i0: 0, i1: 0, j0: 0, j1: 0 };
   /** Seconds of remaining relaxation activity (granular sliding). */
   private relaxActive = 0;
+  /** Grid box the relaxation pass works on (edits grow it; the world is too big to sweep). */
+  private relaxBox = { on: false, i0: 0, i1: 0, j0: 0, j1: 0 };
   /** Bumped whenever the total height changes (consumers can cache against it). */
   version = 0;
 
@@ -91,7 +95,8 @@ export class TerrainSystem {
       const pad = 1 - smoothstep(0.7, 1.5, Math.sqrt(hx * hx + hz * hz));
       y = y + (I.peak - 0.02 - y) * pad * 0.8;
     }
-    return y;
+    // V2 micro-archipelago (zero change inside the v1 core region)
+    return archipelagoHeight(x, z, y);
   }
 
   // ---------------------------------------------------------------- queries
@@ -193,6 +198,7 @@ export class TerrainSystem {
     add(k + this.nx, (1 - tx) * tz);
     add(k + this.nx + 1, tx * tz);
     this.markDirty(i - 1, i + 2, j - 1, j + 2);
+    this.growRelax(i - 1, i + 2, j - 1, j + 2);
     this.relaxActive = 2.5;
   }
 
@@ -222,6 +228,7 @@ export class TerrainSystem {
       }
     if (removed > 0) {
       this.markDirty(i0, i1, j0, j1);
+      this.growRelax(i0, i1, j0, j1);
       this.relaxActive = Math.max(this.relaxActive, 1.0);
     }
     return removed;
@@ -319,6 +326,7 @@ export class TerrainSystem {
       }
     if (added > 0) {
       this.markDirty(i0, i1, j0, j1);
+      this.growRelax(i0, i1, j0, j1);
       this.relaxActive = Math.max(this.relaxActive, 1.5);
     }
     return added;
@@ -337,9 +345,15 @@ export class TerrainSystem {
       i1 = 0,
       j0 = nz,
       j1 = 0;
+    const B = this.relaxBox;
+    if (!B.on) return;
+    const bi0 = Math.max(0, B.i0 - 2),
+      bi1 = Math.min(nx - 1, B.i1 + 2),
+      bj0 = Math.max(0, B.j0 - 2),
+      bj1 = Math.min(nz - 1, B.j1 + 2);
     for (let it = 0; it < 2; it++) {
-      for (let j = 0; j < nz; j++)
-        for (let i = 0; i < nx; i++) {
+      for (let j = bj0; j <= bj1; j++)
+        for (let i = bi0; i <= bi1; i++) {
           const k = j * nx + i;
           const hk = base[k] + sed[k];
           // +x neighbour
@@ -394,7 +408,23 @@ export class TerrainSystem {
           }
         }
     }
-    if (moved) this.markDirty(i0 - 1, i1 + 1, j0 - 1, j1 + 1);
+    if (moved) {
+      this.markDirty(i0 - 1, i1 + 1, j0 - 1, j1 + 1);
+      this.growRelax(i0, i1, j0, j1);
+    }
+    if (this.relaxActive <= 0) B.on = false;
+  }
+
+  /** Extends the region the relaxation pass looks at. */
+  private growRelax(i0: number, i1: number, j0: number, j1: number) {
+    const B = this.relaxBox;
+    if (!B.on) Object.assign(B, { on: true, i0, i1, j0, j1 });
+    else {
+      B.i0 = Math.min(B.i0, i0);
+      B.i1 = Math.max(B.i1, i1);
+      B.j0 = Math.min(B.j0, j0);
+      B.j1 = Math.max(B.j1, j1);
+    }
   }
 
   private markDirty(i0: number, i1: number, j0: number, j1: number) {
@@ -601,16 +631,16 @@ function makeTopMaterial() {
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, shared);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nattribute float aSed; varying float vSed; varying vec3 vWPos;')
+      .replace('#include <common>', '#include <common>\nattribute float aSed; varying float vSed; varying vec3 vWPos; varying vec3 vWN;')
       .replace(
         '#include <project_vertex>',
-        '#include <project_vertex>\nvSed = aSed; vWPos = (modelMatrix * vec4(transformed,1.0)).xyz;',
+        '#include <project_vertex>\nvSed = aSed; vWPos = (modelMatrix * vec4(transformed,1.0)).xyz; vWN = normalize(mat3(modelMatrix) * objectNormal);',
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
-        varying float vSed; varying vec3 vWPos;
+        varying float vSed; varying vec3 vWPos; varying vec3 vWN;
         uniform float uTime; uniform float uWaterLevel; uniform float uCausticStrength; uniform vec3 uCausticColor;
         ${GLSL_NOISE}
         ${SRGB}`,
@@ -645,6 +675,25 @@ function makeTopMaterial() {
           vec2 sp2 = vWPos.xz * 42.0 + 3.0; vec2 sid2 = floor(sp2);
           vec2 sf2 = fract(sp2) - 0.5 - (jHash22(sid2) - 0.5) * 0.6;
           col = mix(col, s2l(vec3(1.0, 0.95, 0.88)), step(0.95, jHash12(sid2)) * smoothstep(0.2, 0.08, length(sf2)) * 0.6);
+        }
+        // V2 archipelago (outside the v1 core only): rock on steep natural slopes, a green cap on
+        // high ground, darker floor in the deep blue hole
+        {
+          vec3 wn = normalize(vWN);
+          float slope = sqrt(max(0.0, 1.0 - wn.y * wn.y)) / max(wn.y, 0.05);
+          float outer = max(smoothstep(23.0, 25.5, abs(vWPos.x)), smoothstep(13.5, 15.5, -vWPos.z)) * (1.0 - smoothstep(0.004, 0.04, vSed));
+          float n3 = jFbm(vWPos.xz * 1.7 + 11.0);
+          float rockF = smoothstep(1.2, 1.7, slope + (n3 - 0.5) * 0.45) * outer;
+          vec3 rockC = mix(s2l(vec3(0.42, 0.39, 0.36)), s2l(vec3(0.58, 0.54, 0.48)), n3);
+          rockC *= 0.85 + 0.3 * jNoise(vWPos.xz * 9.0 + vWPos.y * 3.0);
+          // high rocks stay dry and grey; rocks in the surf get a dark wet band
+          rockC *= mix(0.7, 1.0, smoothstep(wl - 0.1, wl + 0.35, y));
+          col = mix(col, rockC, rockF);
+          float greenF = smoothstep(wl + 0.9, wl + 1.6, y + (n1 - 0.5) * 0.6) * (1.0 - smoothstep(1.2, 1.9, slope)) * outer;
+          vec3 greenC = mix(s2l(vec3(0.26, 0.42, 0.18)), s2l(vec3(0.44, 0.56, 0.24)), n3) * (0.85 + 0.25 * n2);
+          col = mix(col, greenC, greenF);
+          float deep = smoothstep(-7.6, -11.5, y);
+          col = mix(col, col * vec3(0.55, 0.62, 0.72), deep);
         }
         // freshly added sand: lighter and finer
         float fresh = smoothstep(0.004, 0.05, vSed);

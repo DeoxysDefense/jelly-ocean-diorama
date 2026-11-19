@@ -54,7 +54,9 @@ export class WallpaperAdapter {
       app.env.setTime(((time % 24) + 24) % 24);
     }
     const view = q.get('view');
-    if (view === 'top' || view === 'front') app.cam.setView(view, true);
+    if (view === 'top' || view === 'front' || view === 'focus' || view === 'full') app.cam.setView(view, true);
+    const fx = Number(q.get('x'));
+    if (q.has('x') && Number.isFinite(fx)) app.cam.focusX = app.cam.clampFocus(fx);
     const tab = q.get('tab');
     if (tab === 'interact' || tab === 'create' || tab === 'life' || tab === 'nature' || tab === 'world') app.tools.setTab(tab);
     if (q.get('panel') === '0') app.ui?.setCollapsed(true);
@@ -124,6 +126,30 @@ export class WallpaperAdapter {
           app.events.reschedule();
         }
         app.prefs.changed();
+        break;
+      }
+      case 'defaultView': {
+        const v = (['focus', 'full', 'top'] as const)[Number(val)] ?? 'focus';
+        app.cam.setView(v, true);
+        break;
+      }
+      case 'autoDrift':
+        app.nav.setDrift(!!val);
+        app.minimap?.refresh();
+        break;
+      case 'sound':
+        app.sound.setOn(!!val);
+        app.featureUI?.refresh();
+        app.minimap?.refresh();
+        break;
+      case 'soundVolume':
+        app.sound.setVolume(Number(val) / 100);
+        app.featureUI?.refresh();
+        break;
+      case 'visitors': {
+        const m = (['off', 'few', 'normal'] as const)[Number(val)] ?? 'normal';
+        app.visitors.setMode(m);
+        app.featureUI?.refresh();
         break;
       }
       case 'quality':

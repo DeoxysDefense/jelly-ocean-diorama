@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { randZ, zClamp } from '../config';
+import { CONFIG, randZ, zClamp } from '../config';
 import { clamp, rand } from '../util/math';
 import { taperedTube } from '../util/geometry';
 import { GLSL_NOISE, shared } from '../util/shaders';
 import type { WorldContext } from './types';
+import { depthAt, towardDeep } from './shallows';
 
 /**
  * Blue-spotted stingray: flat disc body with travelling wing undulation (vertex shader),
@@ -22,6 +23,17 @@ export class Stingray {
   private fv = new THREE.Vector3();
 
   /** Poked / startled: bank away and glide off toward the other side. */
+  /** The pointer rests on it: it veers off a little (no hurry). */
+  nudge(from: THREE.Vector3) {
+    const away = this.sTmp.copy(this.pos).sub(from).setY(0);
+    if (away.lengthSq() < 1e-4) return;
+    away.normalize();
+    this.target.copy(this.pos).addScaledVector(away, 3.5);
+    this.target.z = zClamp(this.target.z, 2);
+    if (!this.placeTargetInBand(this.target)) this.pickTarget();
+    this.timer = Math.max(this.timer, 6);
+  }
+
   poke(from: THREE.Vector3) {
     const away = this.pos.clone().sub(from).setY(0).normalize();
     this.target.copy(this.pos).addScaledVector(away, 7);
@@ -46,6 +58,12 @@ export class Stingray {
     return true;
   }
   private uniforms = { uPhase: { value: 0 }, uAmp: { value: 0.06 } };
+  private esc = { x: 0, z: 0, dist: 0 };
+  private sDesired = new THREE.Vector3();
+  private sAhead = new THREE.Vector3();
+  private sPush = new THREE.Vector3();
+  private sTmp = new THREE.Vector3();
+  private sPrev = new THREE.Vector3();
   readonly radius = 0.75;
   private L = 1.35;
   private S = 0.95;
@@ -273,12 +291,15 @@ export class Stingray {
   private pickTarget() {
     const vis = this.ctx.visibleX;
     if (Math.random() < 0.22) {
-      // leave the view along the deep side (right) or the open-water middle
+      // V2: an excursion out of the home frame. The tray is visible beyond it now (panned Focus,
+      // Full View), so the ray really glides out over the open sand / quiet water and comes back
+      // instead of vanishing at the frame edge.
       const side = this.pos.x < 4 ? -1 : 1;
-      this.target.set(side * (Math.max(-vis.min, vis.max) + 4), 0, randZ(2, 1.2));
+      const far = Math.min(CONFIG.world.xMax - 5, Math.max(-vis.min, vis.max) + rand(6, 20));
+      this.target.set(side * far, 0, randZ(2, 1.2));
       if (side < 0 || !this.placeTargetInBand(this.target)) {
-        // the left is the shallow lagoon: exit right instead
-        this.target.x = Math.max(-vis.min, vis.max) + 4;
+        // the left is the shallow lagoon: go right instead
+        this.target.x = far;
         if (!this.placeTargetInBand(this.target)) this.target.y = this.ctx.water.level - 2.5;
       }
       this.timer = 55; // long enough to actually glide out of view
@@ -312,21 +333,19 @@ export class Stingray {
     }
     this.timer -= dt;
     if (this.timer <= 0 || this.pos.distanceTo(this.target) < 1.0) this.pickTarget();
-    if (Math.abs(this.pos.x) > Math.max(-vis.min, vis.max) + 3.5 && Math.abs(this.target.x) > Math.max(-vis.min, vis.max)) {
-      this.away = rand(8, 20);
-      return;
-    }
+    void vis;
     const cruise = 0.62;
     // the tide may have made the current target unsafe
     if (!this.band(this.target.x, this.target.z).deep) this.pickTarget();
-    const desired = this.target.clone().sub(this.pos).normalize().multiplyScalar(cruise);
+    // (scratch vectors: this runs every frame)
+    const desired = this.sDesired.copy(this.target).sub(this.pos).normalize().multiplyScalar(cruise);
     // obstacles: one bounded steering push (mostly sideways, only a little upward)
-    const ahead = this.pos.clone().addScaledVector(this.fwd, 1.4);
-    const push = new THREE.Vector3();
+    const ahead = this.sAhead.copy(this.pos).addScaledVector(this.fwd, 1.4);
+    const push = this.sPush.set(0, 0, 0);
     for (const o of this.ctx.obstacles()) {
       const d = ahead.distanceTo(o.center);
       const r = o.radius + 1.0;
-      if (d < r) push.add(ahead.clone().sub(o.center).setY(0).normalize().multiplyScalar((r - d) / r));
+      if (d < r) push.add(this.sTmp.copy(ahead).sub(o.center).setY(0).normalize().multiplyScalar((r - d) / r));
     }
     if (push.lengthSq() > 0) {
       push.clampLength(0, 1).multiplyScalar(0.6);
@@ -362,8 +381,8 @@ export class Stingray {
     this.vel.lerp(desired, Math.min(1, dt * 0.55));
     const sp = this.vel.length();
     if (sp > 1e-3) {
-      const want = this.vel.clone().divideScalar(sp);
-      const prev = this.fwd.clone();
+      const want = this.sTmp.copy(this.vel).divideScalar(sp);
+      const prev = this.sPrev.copy(this.fwd);
       const ang = this.fwd.angleTo(want);
       const maxA = 0.55 * dt;
       if (ang > maxA) this.fwd.lerp(want, maxA / ang).normalize();
@@ -373,6 +392,15 @@ export class Stingray {
     }
     this.pos.addScaledVector(this.fwd, Math.max(0.3, sp) * dt);
     this.pos.z = zClamp(this.pos.z, 1.2);
+    // the water got too shallow here (sea level / tide dropped): glide off toward deep water
+    if (depthAt(this.ctx, this.pos.x, this.pos.z) < 0.7 && towardDeep(this.ctx, this.pos.x, this.pos.z, 1.4, this.esc)) {
+      const e = this.esc;
+      const step = depthAt(this.ctx, this.pos.x, this.pos.z) < 0.1 ? e.dist : Math.min(e.dist, 1.6 * dt);
+      this.pos.x += e.x * step;
+      this.pos.z += e.z * step;
+      this.fwd.lerp(this.fv.set(e.x, 0, e.z), Math.min(1, dt * 1.5)).normalize();
+      if (!this.band(this.target.x, this.target.z).deep) this.pickTarget();
+    }
     // hard limits: never above the surface band (wins over the floor in very shallow water)
     const b = this.band(this.pos.x, this.pos.z);
     if (this.pos.y < b.floor - 0.1) this.pos.y = b.floor - 0.1;

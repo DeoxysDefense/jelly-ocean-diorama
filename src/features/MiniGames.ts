@@ -78,6 +78,7 @@ export class MiniGameManager {
     this.active = id === 'skip' ? new StoneSkippingGame(app, this) : new OctopusHideSeekGame(app, this);
     this.hud.classList.add('show');
     this.active.start();
+    this.app.memory?.log('game', { id });
     app.ui?.hideTip();
     app.featureUI?.refresh();
   }

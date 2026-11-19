@@ -63,6 +63,13 @@ export class RenderPipeline {
     void height;
   }
 
+  /** MSAA samples of the scene target (quality ladder); re-allocates only when it changes. */
+  setSamples(n: number) {
+    if (this.rtScene.samples === n) return;
+    this.rtScene.samples = n;
+    this.rtScene.dispose();
+  }
+
   /** Explicit render-target size in device pixels (used by the Magnifier's own pipeline). */
   setPixelSize(w: number, h: number) {
     if (this.resolution.x === w && this.resolution.y === h) return;

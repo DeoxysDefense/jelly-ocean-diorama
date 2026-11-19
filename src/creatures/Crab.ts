@@ -8,7 +8,7 @@ import type { WorldContext } from './types';
 import { buildClaw, buildEyeStalk, buildLeg, type Claw, type Leg } from './crabParts';
 import { dryness, findWet, gateStep } from './shoreline';
 
-type CrabState = 'idle' | 'walk' | 'forage' | 'eat' | 'flee' | 'alert' | 'dig' | 'shore';
+type CrabState = 'idle' | 'walk' | 'forage' | 'eat' | 'flee' | 'alert' | 'dig' | 'shore' | 'buried';
 
 /**
  * Seabed crab: faces the viewer and scuttles sideways. Toothed carapace with spots, jointed
@@ -36,6 +36,11 @@ export class Crab {
   active = true;
   readonly radius = 0.4;
 
+  /** V2: where this crab forages at low tide (x0, x1, z0, z1); v1 crabs use the main island shore. */
+  shore: [number, number, number, number] = [-13, -4, -3, 5];
+  /** How far east a stranded crab may walk to reach water (v1: 18). */
+  rescueMaxX = 18;
+
   constructor(private ctx: WorldContext, start: THREE.Vector3, private range: [number, number], private zRange: [number, number], hue = 0.03) {
     this.pos = start.clone();
     this.build(hue);
@@ -54,6 +59,7 @@ export class Crab {
         alert: 'Claws up!',
         dig: 'Digging',
         shore: 'Exploring the tide line',
+        buried: 'Buried in the sand',
       } as Record<CrabState, string>
     )[this.state];
   }
@@ -154,8 +160,25 @@ export class Crab {
     return this.state === 'walk' || this.state === 'flee';
   }
 
-  /** Poked by the user: raise claws, then scuttle away. */
+  private sink = 0;
+
+  /** The pointer rests on it: claws up in a threat display, without running off. */
+  display(_from: THREE.Vector3) {
+    if (this.state !== 'idle' && this.state !== 'walk' && this.state !== 'forage' && this.state !== 'eat') return;
+    this.state = 'alert';
+    this.timer = 1.6;
+    this.targetX = this.pos.x;
+    this.targetZ = null;
+  }
+
+  /** Poked by the user: raise claws, then scuttle away — or, under water, dig in and wait. */
   poke(from: THREE.Vector3) {
+    if (this.state !== 'buried' && this.ctx.water.level - this.pos.y > 0.15 && Math.random() < 0.4) {
+      this.state = 'buried';
+      this.timer = rand(5, 8);
+      this.ctx.fx?.dust(this.pos.x, this.pos.y + 0.05, this.pos.z, 6);
+      return;
+    }
     this.state = 'alert';
     this.timer = 0.9;
     this.dir = from.x < this.pos.x ? 1 : -1;
@@ -179,8 +202,8 @@ export class Crab {
   /** Low tide: find a spot just below the waterline around the island (never on dry sand). */
   private pickShoreSpot(): boolean {
     for (let i = 0; i < 30; i++) {
-      const x = rand(-13, -4),
-        z = rand(-3, 5);
+      const x = rand(this.shore[0], this.shore[1]),
+        z = rand(this.shore[2], this.shore[3]);
       const d = dryness(this.ctx, x, z);
       if (d < -0.05 && d > -0.5) {
         this.targetX = x;
@@ -252,6 +275,15 @@ export class Crab {
         }
         break;
       }
+      case 'buried': {
+        // only the eyes stay above the sand
+        crouch = 1;
+        if (this.timer <= 0) {
+          this.state = 'idle';
+          this.timer = rand(2, 4);
+        }
+        break;
+      }
       case 'alert': {
         clawLift = 1;
         if (this.timer <= 0) {
@@ -294,6 +326,7 @@ export class Crab {
         if (!walking) {
           if (this.state === 'forage') {
             this.state = 'eat';
+            this.ctx.sight?.('crabForage', this.pos);
             this.timer = 2.2;
           } else {
             this.state = this.state === 'shore' ? 'dig' : 'idle';
@@ -329,8 +362,10 @@ export class Crab {
       this.pos.x += this.dir * Math.min(Math.abs(this.targetX - this.pos.x) / Math.max(dt, 1e-3), this.speed) * dt;
       this.gait += dt * Math.max(this.speed, 0.3) * 22;
     }
-    const xmin = this.state === 'shore' || this.rescuing || this.pos.x < this.range[0] ? -14 : this.range[0];
-    this.pos.x = clamp(this.pos.x, xmin, this.rescuing ? 18 : Math.max(this.range[1], ox));
+    // (v1 crabs: shore box x -13 … -4 gives the original -14 / 18 limits)
+    const xmin = this.state === 'shore' || this.rescuing || this.pos.x < this.range[0] ? Math.min(this.shore[0] - 1, this.range[0]) : this.range[0];
+    const xmax = this.rescuing ? this.rescueMaxX : Math.max(this.range[1], ox);
+    this.pos.x = clamp(this.pos.x, xmin, xmax);
     this.pos.z = zClamp(this.pos.z, 0.8);
     // never step out of the water
     if (gateStep(ctx, this.pos, ox, oz)) {
@@ -345,7 +380,9 @@ export class Crab {
     this.pos.y = ctx.terrain.heightAt(this.pos.x, this.pos.z);
 
     // ---- pose
+    this.sink += ((this.state === 'buried' ? 1 : 0) - this.sink) * Math.min(1, dt * (this.state === 'buried' ? 3 : 1.2));
     this.group.position.copy(this.pos);
+    this.group.position.y -= this.sink * 0.12;
     const n = ctx.terrain.normalAt(this.pos.x, this.pos.z);
     this.group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), n);
     this.body.position.y = 0.02 * Math.abs(Math.sin(this.gait * 0.5)) * (walking ? 1 : 0) - crouch * 0.04;

@@ -39,6 +39,12 @@ export class OceanEventManager {
   readonly group = new THREE.Group();
   private events: Record<EventId, OceanEvent>;
   private running: OceanEvent | null = null;
+
+  /** P3: the visiting fusilier school can be observed (hover / click). */
+  pickSchool(rc: THREE.Raycaster): THREE.Vector3 | null {
+    const e = this.running as unknown as { id: string; pick?: (rc: THREE.Raycaster) => THREE.Vector3 | null } | null;
+    return e && e.id === 'school' && e.pick ? e.pick(rc) : null;
+  }
   private saveT = 0;
 
   constructor(private app: App, private prefs: Prefs) {
@@ -73,6 +79,7 @@ export class OceanEventManager {
   private begin(e: OceanEvent) {
     this.running = e;
     this.prefs.data.events.last = e.id;
+    this.app.memory?.log('event', { id: e.id });
     e.start();
   }
 
@@ -118,7 +125,7 @@ export class OceanEventManager {
 // ======================================================================== helpers
 function visibleFront(app: App, margin = 3) {
   const v = app.cam.visibleX(margin);
-  return { xMin: Math.max(v.min, -20), xMax: Math.min(v.max, 20) };
+  return { xMin: Math.max(v.min, CONFIG.world.xMin + 3), xMax: Math.min(v.max, CONFIG.world.xMax - 3) };
 }
 
 /** A random wet, open seabed spot in view (away from obstacles). */
@@ -225,6 +232,11 @@ const VISITOR: FishSpec = {
 class VisitingSchoolEvent implements OceanEvent {
   readonly id = 'school' as const;
   readonly weight = 1.2;
+  pick(rc: THREE.Raycaster): THREE.Vector3 | null {
+    if (!this.mesh) return null;
+    const h = rc.intersectObject(this.mesh, false)[0];
+    return h ? h.point.clone() : null;
+  }
   private mesh: THREE.InstancedMesh | null = null;
   private eyes: THREE.InstancedMesh | null = null;
   private swim: THREE.InstancedBufferAttribute | null = null;

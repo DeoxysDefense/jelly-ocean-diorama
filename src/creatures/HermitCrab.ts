@@ -33,6 +33,8 @@ export class HermitCrab {
   private houseHunt = rand(25, 50);
   private shellSeed: number;
   private targetShell: Selectable | null = null;
+  /** The shell it just moved out of (never chosen again right away). */
+  private leftShell: Selectable | null = null;
   private tuck = 0;
   private wet = { x: 0, z: 0 };
   private rescuing = false;
@@ -174,8 +176,9 @@ export class HermitCrab {
     let best: Selectable | null = null,
       bd = 9;
     for (const s of shells) {
+      if (s === this.leftShell) continue;
       if (dryness(this.ctx, s.object.position.x, s.object.position.z) > 0) continue; // shells on dry sand are out of reach
-      const d = s.object.position.distanceTo(this.pos) - (s.user ? 3 : 0); // freshly placed shells are tempting
+      const d = s.object.position.distanceTo(this.pos) - (s.user && !s.natural ? 3 : 0); // freshly placed shells are tempting
       if (d < bd) {
         bd = d;
         best = s;
@@ -189,13 +192,19 @@ export class HermitCrab {
     const t = this.targetShell;
     const reef = this.ctx.reef;
     if (!t || !reef.selectables.includes(t)) return;
+    this.ctx.note?.('hermitSwap', undefined, this.pos);
     const oldSeed = this.shellSeed;
     const newSeed = t.seed ?? Math.floor(Math.random() * 1e6);
     const at = this.pos.clone().add(new THREE.Vector3(-Math.cos(this.yaw) * 0.45, 0, Math.sin(this.yaw) * 0.45));
     reef.detach(t);
     // the empty shell it moved out of is gone for good (no undo entry): free its GPU buffers
     t.object.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose());
-    reef.createObject('shell', at.x, at.z, oldSeed);
+    // the shell it leaves behind is the crab's doing, not a fresh placement by the user: it must
+    // not tempt it straight back (v1 loop) nor show up under My Ocean
+    const left = reef.createObject('shell', at.x, at.z, oldSeed);
+    left.placedAt = 0;
+    left.natural = true;
+    this.leftShell = left;
     this.shellSeed = newSeed;
     const oldGeo = this.shellMesh.geometry;
     this.shellMesh.geometry = Reef.shellGeometry(newSeed).geo;

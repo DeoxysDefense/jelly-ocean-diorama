@@ -1,5 +1,7 @@
 import * as THREE from 'three';
+import { L, uiLang } from '../ui/lang';
 import { rand } from '../util/math';
+import { CONFIG } from '../config';
 import type { App } from '../core/App';
 import { coconutGeometry } from '../world/Island';
 import type { Prefs, TreeState } from './Prefs';
@@ -40,7 +42,7 @@ export class CoconutGrowth {
 
   constructor(private app: App, private prefs: Prefs) {
     for (const m of [this.ripeMat, this.youngMat]) m.userData.keep = true;
-    app.island.palms.forEach((palm, ti) => {
+    app.island.allPalms.forEach((palm, ti) => {
       const slots: THREE.Mesh[] = [];
       for (let i = 0; i < SLOTS; i++) {
         // spread around the crown, biased toward the viewer so ripe nuts can be seen and clicked
@@ -62,6 +64,11 @@ export class CoconutGrowth {
       palm.crown.add(growing);
       this.trees.push({ slots, ripe: new Array(SLOTS).fill(false), growing });
     });
+    // V2: palms on the new islands join the harvest (older prefs only knew the two main palms;
+    // the new trees start with one ripe coconut)
+    const now = Date.now();
+    while (this.cfg.trees.length < this.trees.length) this.cfg.trees.push({ ripe: 1, since: now });
+    if (this.cfg.trees.length > this.trees.length) this.cfg.trees.length = this.trees.length;
     this.syncFromPrefs();
   }
 
@@ -166,7 +173,7 @@ export class CoconutGrowth {
       const { tree, slot } = hit.object.userData as { tree: number; slot: number };
       this.drop(tree, slot, 0.4);
       this.app.island.shakePalm(tree);
-      this.app.island.palms[tree].shake = 0.35;
+      this.app.island.allPalms[tree].shake = 0.35;
       return true;
     }
     const ti = this.palmHit(rc);
@@ -183,7 +190,7 @@ export class CoconutGrowth {
     let best = -1,
       bd = Infinity;
     const ray = rc.ray;
-    this.app.island.palms.forEach((p, i) => {
+    this.app.island.allPalms.forEach((p, i) => {
       let d = ray.distanceToPoint(p.crown.position) - 0.75;
       for (const s of p.spine) d = Math.min(d, ray.distanceToPoint(s) - 0.28);
       if (d < 0 && d < bd) {
@@ -210,7 +217,7 @@ export class CoconutGrowth {
     if (k === 0) {
       const ms = this.nextIn();
       const ui = this.app.ui;
-      if (ui) ui.toast(ms === null ? 'No ripe coconuts on this palm' : `No ripe coconuts yet — next in ${formatDuration(ms)}`);
+      if (ui) ui.toast(ms === null ? L('No ripe coconuts on this palm', '这棵树上没有熟椰子') : L(`No ripe coconuts yet — next in ${formatDuration(ms)}`, `还没有熟椰子，${formatDuration(ms)}后再来`));
     }
   }
 
@@ -230,7 +237,7 @@ export class CoconutGrowth {
     mesh.position.copy(p);
     this.group.add(mesh);
     // fall away from the island centre so it ends up on the beach slope / in the sea
-    const I = this.app.island.palms[ti].origin;
+    const I = this.app.island.allPalms[ti].origin;
     const away = new THREE.Vector3(p.x - I.x, 0, p.z - I.z);
     if (away.lengthSq() < 1e-4) away.set(rand(-1, 1), 0, rand(-1, 1));
     away.normalize().multiplyScalar(kick + rand(0.2, 0.6));
@@ -302,6 +309,7 @@ export class CoconutGrowth {
           app.spray.burst(p.x, surf, p.z, 0.4 + power * 0.6);
           app.bubbles.emit(p.x, surf - 0.2, p.z, 5, 0.15, 0.6);
           app.creatures.ripple(p.x, p.z, 0.5 + power * 0.5);
+          app.memory?.log('coconutSea');
           f.phase = 'float';
           f.vel.set(f.vel.x * 0.3, 0, f.vel.z * 0.3);
           p.y = surf - 0.25;
@@ -364,7 +372,7 @@ export class CoconutGrowth {
         f.mesh.scale.setScalar(s);
       }
       // stray far away: clean up
-      if (Math.abs(p.x) > 32 || p.y < -20) {
+      if (Math.abs(p.x) > CONFIG.world.xMax + 2 || p.y < -20) {
         this.group.remove(f.mesh);
         this.falling.splice(i, 1);
       }
@@ -390,8 +398,9 @@ export class CoconutGrowth {
 
 export function formatDuration(ms: number) {
   const m = Math.ceil(ms / 60000);
-  if (m < 1) return '<1m';
-  if (m < 60) return `${m}m`;
+  const zh = uiLang() === 'zh';
+  if (m < 1) return zh ? '不到1分钟' : '<1m';
+  if (m < 60) return zh ? `${m}分钟` : `${m}m`;
   const h = Math.floor(m / 60);
-  return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+  return zh ? `${h}小时${m % 60 ? `${m % 60}分` : ''}` : `${h}h ${String(m % 60).padStart(2, '0')}m`;
 }

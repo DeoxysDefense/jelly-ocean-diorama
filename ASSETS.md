@@ -29,6 +29,21 @@ bundled, so there are no external licences to track. (Three.js itself is MIT-lic
 | Visiting fusilier school | Same lofted fish builder as the residents, new painted spec | `src/features/OceanEvents.ts` | V3 |
 | Starfish, washed-up shells, dry palm frond (events) | Reused reef / island builders | `src/features/OceanEvents.ts` | V3 |
 | Parchment note, game bar, magnifier frame | CSS only (no images) | `src/ui/styles.css` | V3 |
+| Archipelago: sand cay + tidal flat, rocky reef flat, granite island beach, east drop-off (terrain shapes, rock / deep shading) | Procedural heightfield + shader | `src/world/Archipelago.ts`, `src/world/TerrainSystem.ts` | V2 P1 |
+| Dark boulders, smooth granite boulders, beach grass, shrubs, small palms, driftwood on the new islands | Shared procedural rock / shrub / grass / palm builders | `src/world/Archipelago.ts`, `src/world/Island.ts` | V2 P1 |
+| Lagoon patch reefs and seagrass meadows (seeded scatter) | Coral factory + instanced seagrass | `src/world/Reef.ts` | V2 P1 |
+| Bushy gorgonian / sea rod and black coral (3D branching, muted colours) | Recursive tapered tubes with vertex colours | `src/world/coralFactory.ts` (`gorgonianBush`) | V2 P1 |
+| Pillar coral, mushroom coral, barrel sponge, sea whips, sea urchin, giant clam | Procedural geometry (lathe / parametric surfaces / tubes) with vertex colours | `src/world/coralFactory.ts` | V2 P1 |
+| Wooden display base + contact shadow (Full View) | Extruded rounded slab with the procedural wood texture; canvas radial gradient | `src/world/Plinth.ts` | V2 P1 |
+| Sergeant major, parrotfish, moon wrasse, yellowtail snapper, barracuda, grouper | Same lofted fish builder, new painted specs | `src/creatures/fishSpecies.ts` | V2 P1 |
+| Garden eels, sea cucumber, cleaner shrimp, crawling urchins | Procedural tubes / lathes with vertex colours | `src/creatures/LagoonLife.ts` | V2 P1 |
+| Ocean Journal (parchment sheet, diary lines, automatic names) | CSS + text written for this project | `src/features/OceanJournal.ts`, `src/content/journal.ts`, `src/ui/styles.css` | V2 P2 |
+| Rare visitors: green turtle (teardrop carapace with painted scutes and sunburst streaks, pale plastron, lofted scaled head with beak and eyelids, lens-section swept flippers with claws), manta ray (swept-wing planform, CPU wing wave), dolphins, whale shark (broad flat head, soft vertex-colour spots, tail wave), seahorse (lofted body with bony rings and ridges, curled square tail, coronet, rippling dorsal fin), cuttlefish (shader colour bands, rippling fin skirt), moray eel (flattened body with fin fold, hinged jaw with teeth, nostril tubes; spotted or green), flying fish (translucent wing fins) | Procedural lofts / tubes / lathes / extrusions with vertex colours; scute, scale and spot textures painted into small canvases at runtime (a few rows per frame) | `src/creatures/Visitors.ts`, `src/creatures/visitorModels.ts` | V2 P3 |
+| Beach traces: turtle tracks, cuttlebone | Flat ground marks / a flattened sphere, fading out | `src/features/RareVisitors.ts` | V2 P3 |
+| Field Notebook sketches | Rendered from the live scene at runtime, then turned into ink + watercolour on paper in JS (no images shipped) | `src/features/FieldNotebook.ts` | V2 P3 |
+| Field Notebook texts (21 residents, 9 visitors, 10 behaviours, 中文 + English) | Written for this project; common, verifiable natural history (same sources as Ocean Mail) | `src/content/notebook.ts` | V2 P3 |
+| Ambient sound (swells, foam, underwater hum, reef crackle, wind, rain) | Synthesised at runtime with Web Audio from generated white / pink / brown noise; no audio files | `src/features/AmbientSound.ts` | V2 |
+| View buttons, mini map | Inline SVG icons; the map is painted from the terrain heightfield at runtime | `src/features/MiniMap.ts` | V2 P1 |
 | Ocean Mail texts (24 facts, 30 fortunes, 20 thoughts, 中文 + English) | Written for this project; facts are common, verifiable marine-science knowledge (NOAA Ocean Service, Smithsonian Ocean, Britannica) | `src/content/messages.ts` | V3 |
 
 ## Replacing procedural assets with GLB / glTF models

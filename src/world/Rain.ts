@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { randZ } from '../config';
+import { randViewX, randZ } from '../config';
 import { rand } from '../util/math';
 import type { WaterSurfaceSimulation } from '../water/WaterSurfaceSimulation';
 import type { TerrainSystem } from './TerrainSystem';
@@ -29,7 +29,7 @@ export class Rain {
   }
 
   private spawn(i: number, anywhere = false) {
-    this.drops[i * 4] = rand(-21, 21);
+    this.drops[i * 4] = randViewX();
     this.drops[i * 4 + 1] = anywhere ? rand(0, 11) : rand(9, 12);
     this.drops[i * 4 + 2] = randZ(0.2);
     this.drops[i * 4 + 3] = rand(11, 15);

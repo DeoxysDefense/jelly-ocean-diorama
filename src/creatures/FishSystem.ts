@@ -1,17 +1,38 @@
 import * as THREE from 'three';
-import { CONFIG, randZ } from '../config';
+import { CONFIG, outsideView, randZ, viewWindow } from '../config';
+import { Habitat, type HabitatKind } from '../world/Habitat';
 import { clamp, rand } from '../util/math';
 import { GLSL_NOISE, shared } from '../util/shaders';
 import { buildFish, SPECIES, type FishSpec } from './fishSpecies';
 import { FoodState, type FoodSystem } from './FoodSystem';
 import type { WorldContext } from './types';
+import { towardDeep } from './shallows';
+import { Predation } from './Predation';
 
-type Mode = 'wander' | 'school' | 'react' | 'seek' | 'flee' | 'exit' | 'away' | 'hover' | 'rest' | 'curious';
+type Mode = 'wander' | 'school' | 'react' | 'seek' | 'flee' | 'exit' | 'away' | 'hover' | 'rest' | 'curious' | 'hunt';
 
 import type { Selectable } from '../world/Reef';
 
 /** Max instances per species (population slider range). */
-export const FISH_CAP: Record<string, number> = { silverside: 90, cardinal: 40, clown: 6, tang: 8, butterfly: 8, angel: 6 };
+export const FISH_CAP: Record<string, number> = {
+  silverside: 90,
+  cardinal: 40,
+  clown: 6,
+  tang: 8,
+  butterfly: 8,
+  angel: 6,
+  // V2 extra species (lagoon / deep)
+  sergeant: 40,
+  parrot: 6,
+  wrasse: 8,
+  snapper: 24,
+  barracuda: 12,
+  grouper: 4,
+};
+/** V2: default counts of the extra species. */
+export const EXTRA_FISH_DEFAULTS: Record<string, number> = { sergeant: 16, parrot: 3, wrasse: 4, snapper: 12, barracuda: 6, grouper: 2 };
+/** School index → species. */
+const SCHOOL_SPECIES = ['silverside', 'cardinal', 'sergeant', 'snapper', 'barracuda'];
 
 interface Behavior {
   school: number; // -1 = solitary
@@ -28,15 +49,29 @@ interface Behavior {
   neighbor: number;
   swimFreq: number;
   exitChance: number;
+  /** V2: habitats this species picks its spots from (weights) — replaces `zone` when set. */
+  habitats?: Partial<Record<HabitatKind, number>>;
+  /** V2: part of the water column it keeps to (0 = seabed, 1 = surface). */
+  band?: [number, number];
+  /** V2: a v1 resident that now and then visits another habitat and comes back. */
+  roam?: HabitatKind;
 }
 
 const BEHAVIOR: Record<string, Behavior> = {
   silverside: { school: 0, cruise: 1.15, max: 2.7, accel: 2.6, turn: 3.2, detect: 4.8, react: [0.05, 0.7], zone: { x: [-4, 16], y: [-4.8, -0.8] }, sep: 0.28, neighbor: 1.25, swimFreq: 15, exitChance: 0.3 },
   cardinal: { school: 1, cruise: 0.55, max: 1.9, accel: 2.0, turn: 2.8, detect: 3.2, react: [0.2, 1.1], zone: { x: [7, 17], y: [-5.6, -2.6] }, sep: 0.26, neighbor: 0.95, swimFreq: 13, exitChance: 0.1 },
   clown: { school: -1, cruise: 0.45, max: 1.5, accel: 1.6, turn: 2.6, detect: 2.8, react: [0.4, 1.6], zone: { x: [7, 10], y: [-5.6, -3.5] }, home: 'anemone', homeRadius: 1.2, sep: 0.4, neighbor: 0, swimFreq: 11, exitChance: 0 },
-  tang: { school: -1, cruise: 0.75, max: 2.0, accel: 1.6, turn: 2.0, detect: 4.0, react: [0.3, 1.4], zone: { x: [-4, 17], y: [-4.8, -1.2] }, sep: 0.55, neighbor: 0, swimFreq: 8, exitChance: 0.2 },
-  butterfly: { school: -1, cruise: 0.45, max: 1.3, accel: 1.2, turn: 1.8, detect: 3.0, react: [0.9, 2.6], zone: { x: [-15, -3], y: [-2.6, -0.7] }, sep: 0.55, neighbor: 0, swimFreq: 8, exitChance: 0.12 },
+  tang: { school: -1, cruise: 0.75, max: 2.0, accel: 1.6, turn: 2.0, detect: 4.0, react: [0.3, 1.4], zone: { x: [-4, 17], y: [-4.8, -1.2] }, sep: 0.55, neighbor: 0, swimFreq: 8, exitChance: 0.2, roam: 'lagoonReef' },
+  butterfly: { school: -1, cruise: 0.45, max: 1.3, accel: 1.2, turn: 1.8, detect: 3.0, react: [0.9, 2.6], zone: { x: [-15, -3], y: [-2.6, -0.7] }, sep: 0.55, neighbor: 0, swimFreq: 8, exitChance: 0.12, roam: 'lagoonReef' },
   angel: { school: -1, cruise: 0.38, max: 1.2, accel: 1.0, turn: 1.4, detect: 3.4, react: [1.2, 3.0], zone: { x: [5, 16], y: [-4.6, -1.8] }, sep: 0.7, neighbor: 0, swimFreq: 6, exitChance: 0.15 },
+  // ---- V2: the western lagoon
+  sergeant: { school: 2, cruise: 0.6, max: 1.9, accel: 2.2, turn: 3.0, detect: 3.2, react: [0.1, 0.9], zone: { x: [-48, -26], y: [-4, -1] }, sep: 0.24, neighbor: 0.9, swimFreq: 14, exitChance: 0, habitats: { lagoonReef: 3, seagrass: 1 }, band: [0.2, 0.65] },
+  parrot: { school: -1, cruise: 0.55, max: 1.6, accel: 1.2, turn: 1.6, detect: 3.0, react: [0.8, 2.0], zone: { x: [-48, -26], y: [-4, -1] }, sep: 0.7, neighbor: 0, swimFreq: 6, exitChance: 0, habitats: { lagoonReef: 4, mainReef: 1, lagoon: 1 }, band: [0.05, 0.4] },
+  wrasse: { school: -1, cruise: 0.85, max: 2.1, accel: 1.9, turn: 2.6, detect: 3.4, react: [0.2, 1.0], zone: { x: [-48, -26], y: [-4, -1] }, sep: 0.45, neighbor: 0, swimFreq: 10, exitChance: 0, habitats: { lagoonReef: 3, seagrass: 1, lagoon: 1 }, band: [0.05, 0.45] },
+  // ---- V2: the deep east
+  snapper: { school: 3, cruise: 0.7, max: 2.2, accel: 2.0, turn: 2.6, detect: 3.5, react: [0.2, 1.0], zone: { x: [27, 48], y: [-8, -2] }, sep: 0.35, neighbor: 1.2, swimFreq: 11, exitChance: 0, habitats: { slope: 3, deep: 1 }, band: [0.3, 0.7] },
+  barracuda: { school: 4, cruise: 0.32, max: 3.2, accel: 1.5, turn: 1.2, detect: 4.0, react: [0.3, 1.2], zone: { x: [32, 48], y: [-7, -2] }, sep: 0.75, neighbor: 1.8, swimFreq: 4, exitChance: 0, habitats: { deep: 3, slope: 1 }, band: [0.45, 0.85] },
+  grouper: { school: -1, cruise: 0.25, max: 1.6, accel: 0.9, turn: 1.0, detect: 3.0, react: [0.8, 2.0], zone: { x: [27, 40], y: [-9, -4] }, sep: 1.0, neighbor: 0, swimFreq: 4, exitChance: 0, habitats: { slope: 3, deep: 1, mainReef: 1.5 }, band: [0.0, 0.22] },
 };
 
 export interface Fish {
@@ -66,7 +101,23 @@ export interface Fish {
   /** Clownfish: the anemone it currently calls home. */
   home: Selectable | null;
   homeTimer: number;
+  /** V2: a visit to another habitat (v1 residents with `roam`) and how long it lasts. */
+  trip: THREE.Vector3 | null;
+  tripT: number;
+  /** Index in the x-sorted list (neighbour search) and time not yet simulated (LOD). */
+  sortIdx: number;
+  lodAcc: number;
+  /** Predators in mode 'hunt' (see Predation): speed / max-speed / steering multipliers. */
+  huntSpeed?: number;
+  huntMax?: number;
+  huntAccel?: number;
+  /** Seconds of a short burst of speed (a territorial dart, a dive into the anemone). */
+  boostT?: number;
 }
+
+/** Reef fish that come to look at a resting pointer; territorial ones dart at it. */
+const CURIOUS = new Set(['tang', 'butterfly', 'angel', 'parrot', 'wrasse', 'grouper']);
+const TERRITORIAL = new Set(['sergeant', 'clown'])
 
 interface SpeciesMesh {
   mesh: THREE.InstancedMesh;
@@ -75,6 +126,8 @@ interface SpeciesMesh {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const C_ZMIN = () => CONFIG.creatures.zMin + 0.3;
+const C_ZMAX = () => CONFIG.creatures.zMax - 0.3;
 
 /**
  * All bony fish: two boids schools plus individual tropical fish. Lightweight steering
@@ -85,11 +138,18 @@ export class FishSystem {
   readonly group = new THREE.Group();
   readonly fish: Fish[] = [];
   private meshes = new Map<string, SpeciesMesh>();
-  private schoolGoals = [new THREE.Vector3(4, -2.5, 1), new THREE.Vector3(12, -4.2, 0.5)];
+  private schoolGoals = [new THREE.Vector3(4, -2.5, 1), new THREE.Vector3(12, -4.2, 0.5), new THREE.Vector3(-36, -2.5, -6), new THREE.Vector3(32, -5, -6), new THREE.Vector3(42, -4, -8)];
+  /** A school on a long trip ignores the v1 home range until it gets there. */
+  private schoolTrip = [0, 0, 0, 0, 0];
   private fv = new THREE.Vector3();
-  private schoolTimers = [3, 5];
+  private schoolTimers = [3, 5, 2, 2, 2];
   private tmp = new THREE.Vector3();
   private tmp2 = new THREE.Vector3();
+  private escape = { x: 0, z: 0, dist: 0 };
+  /** 0..1 per school: a predator is close (the school balls up and slows down). */
+  readonly schoolAlarm = [0, 0, 0, 0, 0];
+  /** Barracuda strikes and grouper ambushes. */
+  readonly predation: Predation;
   private acc = new THREE.Vector3();
   private m4 = new THREE.Matrix4();
   private basisY = new THREE.Vector3();
@@ -107,7 +167,22 @@ export class FishSystem {
     this.addSpecies('tang', C.tangCount);
     this.addSpecies('butterfly', C.butterflyCount);
     this.addSpecies('angel', C.angelCount);
+    for (const [id, n] of Object.entries(EXTRA_FISH_DEFAULTS)) this.addSpecies(id, n);
+    this.predation = new Predation(this, ctx);
     this.resetBehaviors();
+  }
+
+  /** Centre of a school's members (those schooling or fleeing); returns how many there are. */
+  schoolCenter(s: number, out: THREE.Vector3) {
+    out.set(0, 0, 0);
+    let n = 0;
+    for (const f of this.fish) {
+      if (!f.active || f.b.school !== s || (f.mode !== 'school' && f.mode !== 'flee')) continue;
+      out.add(f.pos);
+      n++;
+    }
+    if (n) out.divideScalar(n);
+    return n;
   }
 
   /** Desired population per species. */
@@ -163,6 +238,10 @@ export class FishSystem {
         leaving: false,
         home: null,
         homeTimer: rand(10, 30),
+        trip: null,
+        tripT: 0,
+        sortIdx: 0,
+        lodAcc: 0,
         active: i < initial,
       };
       list.push(f);
@@ -173,9 +252,21 @@ export class FishSystem {
 
   /** (Re)initialises positions and behaviour state; used on start and Reset World. */
   resetBehaviors() {
+    this.predation?.reset();
+    // habitat schools start somewhere in their own water
+    SCHOOL_SPECIES.forEach((sp, s) => {
+      const b = BEHAVIOR[sp];
+      if (b.habitats) this.habitatPoint(b, this.schoolGoals[s]);
+      this.schoolTrip[s] = 0;
+    });
     for (const f of this.fish) {
       const z = f.b.zone;
-      if (f.b.school >= 0) {
+      f.trip = null;
+      f.tripT = 0;
+      if (f.b.habitats && f.b.school < 0) {
+        this.habitatPoint(f.b, f.pos);
+        f.mode = 'wander';
+      } else if (f.b.school >= 0) {
         const g = this.schoolGoals[f.b.school];
         f.pos.set(g.x + rand(-1.2, 1.2), g.y + rand(-0.5, 0.5), g.z + rand(-1.2, 1.2));
         f.mode = 'school';
@@ -223,7 +314,10 @@ export class FishSystem {
       } else if (!f.active) {
         const z = f.b.zone;
         const side = Math.random() < 0.5 ? -1 : 1;
-        f.pos.set(side * edge, rand(z.y[0], z.y[1]), randZ(2.5, 1.4));
+        if (f.b.habitats) {
+          // habitat species appear somewhere in their own water (out of view when possible)
+          for (let k = 0; k < 6; k++) if (this.habitatPoint(f.b, f.pos) && outsideView(f.pos.x)) break;
+        } else f.pos.set(side * edge, rand(z.y[0], z.y[1]), randZ(2.5, 1.4));
         if (f.b.home === 'anemone') {
           f.home = this.ctx.reef.anemones()[0] ?? null;
           f.mode = 'hover';
@@ -242,7 +336,10 @@ export class FishSystem {
       f.leaving = true;
       f.mode = 'exit';
       const side = f.pos.x < 0 ? -1 : 1;
-      f.target.set(side * edge, f.pos.y, f.pos.z);
+      if (f.b.habitats) {
+        // swims off to the far end of its water and fades out once nobody is looking
+        this.habitatPoint(f.b, f.target);
+      } else f.target.set(side * edge, f.pos.y, f.pos.z);
       active--;
     }
   }
@@ -251,6 +348,8 @@ export class FishSystem {
   moodOf(f: Fish): string {
     if (f.leaving) return 'Leaving';
     switch (f.mode) {
+      case 'hunt':
+        return f.species === 'grouper' ? 'Lying in wait' : 'Hunting';
       case 'flee':
         return 'Startled';
       case 'react':
@@ -280,10 +379,10 @@ export class FishSystem {
   }
 
   /** Click / splash: nearby fish dart away, then recover. */
-  startle(x: number, y: number, z: number, radius = 3.2) {
+  startle(x: number, y: number, z: number, radius = 3.2, except?: Fish) {
     const p = this.tmp.set(x, y, z);
     for (const f of this.fish) {
-      if (!f.active) continue;
+      if (!f.active || f === except || f.mode === 'hunt') continue;
       const d = f.pos.distanceTo(p);
       if (d < radius) {
         f.mode = 'flee';
@@ -294,10 +393,94 @@ export class FishSystem {
     }
   }
 
+  // ------------------------------------------------------------ the pointer
+  /** The pointer rests on a fish: curious ones come closer to look, territorial ones dart at it. */
+  notice(f: Fish, p: THREE.Vector3) {
+    if (!f.active || f.leaving || f.mode === 'hunt' || f.mode === 'flee') return;
+    if (TERRITORIAL.has(f.species)) {
+      f.mode = f.species === 'clown' ? 'hover' : 'curious';
+      f.target.copy(p);
+      f.timer = 1.2;
+      f.boostT = 0.6;
+    } else if (CURIOUS.has(f.species)) {
+      f.mode = 'curious';
+      f.target.copy(f.pos).lerp(p, 0.35);
+      f.target.z = Math.min(f.target.z + 0.6, C_ZMAX());
+      f.timer = rand(3, 4.5);
+    }
+  }
+
+  /** Pressed and held: the fish stops and hovers there, turned a little toward you. */
+  holdStill(f: Fish) {
+    if (!f.active || f.leaving || f.mode === 'hunt') return;
+    if (f.mode !== 'rest') f.target.copy(f.pos).add(this.tmp.set(0, 0, 0.35));
+    f.target.z = Math.min(f.target.z, C_ZMAX());
+    f.mode = 'rest';
+    f.timer = 0.6;
+  }
+
+  /** Clicked: the fish around burst away and regroup; a clownfish dives into its anemone. */
+  pokeFish(f: Fish, p: THREE.Vector3) {
+    this.startle(p.x, p.y, p.z, 2.2);
+    if (f.b.school >= 0) this.schoolAlarm[f.b.school] = Math.max(this.schoolAlarm[f.b.school], 0.6);
+    if (f.species === 'clown') {
+      for (const c of this.fish) {
+        if (!c.active || c.species !== 'clown' || c.pos.distanceTo(p) > 3) continue;
+        c.mode = 'hover';
+        c.target.copy(this.homePos(c));
+        c.timer = 3;
+        c.boostT = 0.8;
+      }
+    }
+    if (f.species === 'parrot') {
+      // a crunch of coral: a little cloud of white sand from its beak
+      const m = this.tmp.copy(f.pos).addScaledVector(f.fwd, f.spec.size * 0.5);
+      this.ctx.fx?.dust(m.x, m.y, m.z, 5);
+    }
+  }
+
+  /** A point in one of the species' habitats (falls back to its zone box). */
+  private habitatPoint(b: Behavior, out: THREE.Vector3) {
+    const h = this.ctx.habitat;
+    if (h && b.habitats) {
+      const p = h.sample(Habitat.pick(b.habitats), b.band ?? [0.2, 0.7], out, this.ctx.water.level);
+      if (p) return true;
+    }
+    out.set(rand(b.zone.x[0], b.zone.x[1]), rand(b.zone.y[0], b.zone.y[1]), randZ(2, 1.5));
+    return false;
+  }
+
   private pickWanderTarget(f: Fish) {
     const z = f.b.zone;
     const vis = this.ctx.visibleX;
     const reef = this.ctx.reef;
+    if (f.b.habitats) {
+      // V2 species: the next spot comes from the habitats they like
+      if (f.b.school < 0 && Math.random() < 0.45) {
+        // linger around the current area for a bit before moving on
+        f.target.set(f.pos.x + rand(-1.6, 1.6), f.pos.y + rand(-0.4, 0.4), clamp(f.pos.z + rand(-1.2, 1.2), C_ZMIN(), C_ZMAX()));
+      } else this.habitatPoint(f.b, f.target);
+      f.timer = rand(5, 12);
+      return;
+    }
+    // V2: v1 reef residents occasionally visit the lagoon reefs and come back
+    if (f.trip && f.tripT > 0) {
+      f.target.copy(f.trip).add(this.tmp.set(rand(-1.5, 1.5), rand(-0.3, 0.3), rand(-1.2, 1.2)));
+      f.mode = 'wander';
+      f.timer = rand(6, 12);
+      return;
+    }
+    if (f.b.roam && this.ctx.habitat && Math.random() < 0.006) {
+      const p = this.ctx.habitat.sample(f.b.roam, [0.25, 0.65], new THREE.Vector3(), this.ctx.water.level);
+      if (p) {
+        f.trip = p;
+        f.tripT = p.distanceTo(f.pos) / f.b.cruise + rand(25, 45);
+        f.target.copy(p);
+        f.mode = 'wander';
+        f.timer = rand(8, 14);
+        return;
+      }
+    }
     if (f.b.home === 'anemone') {
       const a = this.homePos(f);
       const r = f.b.homeRadius ?? 1;
@@ -335,9 +518,26 @@ export class FishSystem {
     const vis = this.ctx.visibleX;
     for (let s = 0; s < this.schoolGoals.length; s++) {
       this.schoolTimers[s] -= dt;
+      this.schoolTrip[s] = Math.max(0, this.schoolTrip[s] - dt);
       if (this.schoolTimers[s] > 0) continue;
-      const b = s === 0 ? BEHAVIOR.silverside : BEHAVIOR.cardinal;
+      const b = BEHAVIOR[SCHOOL_SPECIES[s]];
       const g = this.schoolGoals[s];
+      if (b.habitats) {
+        this.habitatPoint(b, g);
+        this.schoolTimers[s] = rand(9, 18);
+        continue;
+      }
+      if (s === 0 && this.ctx.habitat && Math.random() < 0.12) {
+        // V2: the silverside school sometimes crosses the whole tray (lagoon or deep water)
+        const p = this.ctx.habitat.sample('open', [0.45, 0.85], this.tmp, this.ctx.water.level);
+        if (p) {
+          const d = p.distanceTo(g);
+          g.copy(p);
+          this.schoolTrip[s] = d / b.cruise + 6;
+          this.schoolTimers[s] = this.schoolTrip[s] + rand(12, 20);
+          continue;
+        }
+      }
       if (Math.random() < b.exitChance) {
         const side = Math.random() < 0.5 ? -1 : 1;
         g.set(side * (Math.max(-vis.min, vis.max) + 5), rand(b.zone.y[0], b.zone.y[1]), randZ(3, 1.4));
@@ -349,16 +549,38 @@ export class FishSystem {
     }
   }
 
-  update(dt: number, time: number) {
+  update(frameDt: number, time: number) {
     const ctx = this.ctx;
     const food = ctx.food;
-    this.updateSchoolGoals(dt);
+    this.updateSchoolGoals(frameDt);
+    this.predation.update(frameDt);
+    // a school that has seen a predator balls up where it is instead of travelling on
+    for (let s = 0; s < this.schoolAlarm.length; s++) {
+      const al = this.schoolAlarm[s];
+      if (al < 0.05) continue;
+      if (this.schoolCenter(s, this.tmp) > 0) this.schoolGoals[s].lerp(this.tmp, Math.min(1, frameDt * 2 * al));
+    }
+    // V2: the tray holds ~2× the fish and ~3× the reef objects of v1, so neighbours and
+    // obstacles are looked up in x-sorted lists instead of scanning everything
     const obstacles = ctx.obstacles();
+    this.obsSorted.length = 0;
+    for (const o of obstacles) this.obsSorted.push(o);
+    this.obsSorted.sort((p, q) => p.center.x - q.center.x);
+    this.fishSorted.length = 0;
+    for (const f of this.fish) if (f.active) this.fishSorted.push(f);
+    this.fishSorted.sort((p, q) => p.pos.x - q.pos.x);
+    for (let i = 0; i < this.fishSorted.length; i++) this.fishSorted[i].sortIdx = i;
+    this.frame++;
     const C = CONFIG.creatures;
     const vis = ctx.visibleX;
 
     for (const f of this.fish) {
       if (!f.active) continue;
+      // fish well outside the view think at a third of the rate (never visible, much cheaper)
+      f.lodAcc += frameDt;
+      if (outsideView(f.pos.x + Math.sign(f.pos.x - viewWindow.cx) * -3) && (this.frame + f.id) % 3 !== 0) continue;
+      const dt = Math.min(f.lodAcc, 0.12);
+      f.lodAcc = 0;
       const b = f.b;
       const acc = this.acc.set(0, 0, 0);
       if (f.leaving && f.mode !== 'exit' && f.mode !== 'flee') {
@@ -366,7 +588,9 @@ export class FishSystem {
         f.target.set((f.pos.x < 0 ? -1 : 1) * (Math.max(-vis.min, vis.max) + 3), f.pos.y, f.pos.z);
       }
       f.satiated = Math.max(0, f.satiated - dt);
+      if (f.tripT > 0 && (f.tripT -= dt) <= 0) f.trip = null;
       f.timer -= dt;
+      if (f.boostT) f.boostT = Math.max(0, f.boostT - dt);
       f.hunger = Math.min(1, f.hunger + dt / (b.school >= 0 ? 70 : 100));
       let maxSpeed = b.max * f.speedMul;
       let desiredSpeed = b.cruise * f.speedMul * (1 - 0.45 * this.night);
@@ -436,15 +660,24 @@ export class FishSystem {
         }
         case 'school': {
           const g = this.schoolGoals[b.school];
-          this.boids(f, acc);
-          this.seek(f, g, desiredSpeed, acc, 0.45);
+          const al = this.schoolAlarm[b.school];
+          this.boids(f, acc, 1 + al * 1.8);
+          this.seek(f, g, desiredSpeed * (1 - 0.35 * al), acc, 0.45 + 0.5 * al);
+          break;
+        }
+        case 'hunt': {
+          // steered by Predation: a slow approach, a near-motionless wait or a short dash
+          desiredSpeed = b.cruise * f.speedMul * (f.huntSpeed ?? 1);
+          maxSpeed = b.max * f.speedMul * (f.huntMax ?? 1);
+          this.arrive(f, f.target, desiredSpeed, acc, (f.huntSpeed ?? 1) > 3 ? 0.2 : 1.2);
+          if ((f.huntAccel ?? 1) !== 1) acc.multiplyScalar(f.huntAccel!);
           break;
         }
         case 'hover': {
           // clownfish style: short darts around the home anemone, often pausing
           if (f.pos.distanceTo(f.target) < 0.25 || f.timer <= 0) this.pickWanderTarget(f);
           const far = f.home ? f.pos.distanceTo(f.home.object.position) > 2.2 : false;
-          this.arrive(f, f.target, desiredSpeed * (far ? 2.2 : 0.8), acc, 0.8);
+          this.arrive(f, f.target, desiredSpeed * (far ? 2.2 : 0.8) * (f.boostT ? 3 : 1), acc, 0.8);
           break;
         }
         case 'rest': {
@@ -459,7 +692,8 @@ export class FishSystem {
           break;
         }
         case 'curious': {
-          this.arrive(f, f.target, desiredSpeed * 0.7, acc, 1.2);
+          if (f.boostT) maxSpeed *= 1.3;
+          this.arrive(f, f.target, desiredSpeed * (f.boostT ? 3 : 0.7), acc, f.boostT ? 0.3 : 1.2);
           if (f.timer <= 0) {
             f.mode = 'wander';
             this.pickWanderTarget(f);
@@ -468,6 +702,15 @@ export class FishSystem {
         }
         case 'exit': {
           this.seek(f, f.target, desiredSpeed * 1.2, acc, 1);
+          if (b.habitats) {
+            // V2 species leave quietly once out of view (or once they reach the far spot)
+            if (f.leaving && (outsideView(f.pos.x) || f.pos.distanceTo(f.target) < 1)) {
+              f.active = false;
+              f.leaving = false;
+              continue;
+            }
+            break;
+          }
           if (Math.abs(f.pos.x) > Math.max(-vis.min, vis.max) + 2.5) {
             if (f.leaving) {
               f.active = false;
@@ -497,10 +740,11 @@ export class FishSystem {
         }
       }
 
-      // ---------- separation from every nearby fish (prevents interpenetration)
-      this.separation(f, acc);
+      // ---------- separation from every nearby fish (prevents interpenetration; a striking
+      // predator goes straight through)
+      if (!(f.mode === 'hunt' && (f.huntSpeed ?? 1) > 3)) this.separation(f, acc);
       // ---------- avoid obstacles, terrain, surface, bounds
-      this.avoid(f, acc, obstacles, surfaceMargin, dt);
+      this.avoid(f, acc, this.obsSorted, surfaceMargin, dt);
       for (const d of this.disturbances) {
         this.tmp.copy(f.pos).sub(d.p);
         const dist = this.tmp.length();
@@ -517,8 +761,11 @@ export class FishSystem {
       this.integrate(f, acc, desiredSpeed, maxSpeed, dt);
     }
     this.disturbances.length = 0;
-    this.writeInstances(dt);
+    this.writeInstances(frameDt);
   }
+  private obsSorted: { center: THREE.Vector3; radius: number }[] = [];
+  private fishSorted: Fish[] = [];
+  private frame = 0;
 
   /**
    * Clownfish habitat choice: they stay with their anemone, but a newly placed (or empty)
@@ -568,7 +815,7 @@ export class FishSystem {
     acc.addScaledVector(desired, f.b.accel);
   }
 
-  private boids(f: Fish, acc: THREE.Vector3) {
+  private boids(f: Fish, acc: THREE.Vector3, tight = 1) {
     const b = f.b;
     const cohesion = this.tmp.set(0, 0, 0);
     const align = new THREE.Vector3();
@@ -585,7 +832,7 @@ export class FishSystem {
     }
     if (n > 0) {
       cohesion.divideScalar(n).sub(f.pos);
-      acc.addScaledVector(cohesion, 0.9 * b.accel * 0.5);
+      acc.addScaledVector(cohesion, 0.9 * b.accel * 0.5 * tight);
       align.divideScalar(n).sub(f.vel);
       acc.addScaledVector(align, 0.8);
     }
@@ -593,8 +840,20 @@ export class FishSystem {
 
   private separation(f: Fish, acc: THREE.Vector3) {
     const r = f.b.sep;
-    for (const o of this.fish) {
-      if (o === f || !o.active) continue;
+    const list = this.fishSorted;
+    const reach = Math.max(r, 1.05) * 1.4;
+    // walk outward from this fish in the x-sorted list until x is out of reach
+    for (let dir = -1; dir <= 1; dir += 2)
+      for (let i = f.sortIdx + dir; i >= 0 && i < list.length; i += dir) {
+        const o = list[i];
+        if (Math.abs(o.pos.x - f.pos.x) > reach) break;
+        this.separate(f, o, r, acc);
+      }
+  }
+
+  private separate(f: Fish, o: Fish, r: number, acc: THREE.Vector3) {
+    {
+      if (o === f || !o.active) return;
       const rr = Math.max(r, o.b.sep) * (f.species === o.species ? 1 : 1.4);
       const dx = f.pos.x - o.pos.x,
         dy = f.pos.y - o.pos.y,
@@ -616,8 +875,18 @@ export class FishSystem {
     const b = f.b;
     const look = 0.55 + f.vel.length() * 0.5;
     const ahead = this.tmp.copy(f.pos).addScaledVector(f.fwd, look);
-    // obstacles: sphere look-ahead
-    for (const o of obstacles) {
+    // obstacles: sphere look-ahead (x-sorted: binary search to the nearby slice)
+    let lo = 0,
+      hi = obstacles.length;
+    const minX = ahead.x - 4.5;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (obstacles[mid].center.x < minX) lo = mid + 1;
+      else hi = mid;
+    }
+    for (let oi = lo; oi < obstacles.length; oi++) {
+      const o = obstacles[oi];
+      if (o.center.x > ahead.x + 4.5) break;
       const dx = ahead.x - o.center.x,
         dy = ahead.y - o.center.y,
         dz = ahead.z - o.center.z;
@@ -654,9 +923,17 @@ export class FishSystem {
     // depth bounds
     if (f.pos.z > C.zMax - 0.3) acc.z -= (f.pos.z - (C.zMax - 0.3)) * b.accel * 6;
     if (f.pos.z < C.zMin + 0.3) acc.z += (C.zMin + 0.3 - f.pos.z) * b.accel * 6;
-    // x bounds (wide: fish may be off screen)
-    if (f.pos.x > C.swimXMax) acc.x -= b.accel * 3;
-    if (f.pos.x < C.swimXMin) acc.x += b.accel * 3;
+    // x bounds (wide: fish may be off screen). V2 species, visiting residents and travelling
+    // schools roam the whole tray instead.
+    const free = !!b.habitats || (f.trip && f.tripT > 0) || (b.school >= 0 && this.schoolTrip[b.school] > 0);
+    if (free) {
+      const W = CONFIG.world;
+      if (f.pos.x > W.xMax - 1.5) acc.x -= b.accel * 3;
+      if (f.pos.x < W.xMin + 1.5) acc.x += b.accel * 3;
+    } else {
+      if (f.pos.x > C.swimXMax) acc.x -= b.accel * 3;
+      if (f.pos.x < C.swimXMin) acc.x += b.accel * 3;
+    }
     void dt;
   }
 
@@ -690,15 +967,41 @@ export class FishSystem {
       f.vel.copy(f.fwd).multiplyScalar(speed);
     }
     f.pos.addScaledVector(f.vel, dt);
-    // hard constraints
-    const g = ctx.terrain.heightAt(f.pos.x, f.pos.z) + 0.18;
-    if (f.pos.y < g) {
-      f.pos.y = g;
-      if (f.vel.y < 0) f.vel.y *= -0.3;
+    // too shallow (sea level / tide dropped, an island raised): head for deeper water instead of
+    // being pressed into the sand; on dry land, slip straight back into the water
+    const C = CONFIG.creatures;
+    const need = 0.3 + f.spec.size * 0.25;
+    let ground = ctx.terrain.heightAt(f.pos.x, f.pos.z);
+    let surface = ctx.water.heightAt(f.pos.x, f.pos.z);
+    if (surface - ground < need && towardDeep(ctx, f.pos.x, f.pos.z, need + 0.3, this.escape, C.zMin, C.zMax)) {
+      const e = this.escape;
+      if (surface - ground < 0.06) {
+        f.pos.x += e.x * e.dist;
+        f.pos.z += e.z * e.dist;
+      } else {
+        const k = Math.min(1, (need - (surface - ground)) / need);
+        const step = Math.min(e.dist, (0.8 + 2.4 * k) * dt);
+        f.pos.x += e.x * step;
+        f.pos.z += e.z * step;
+        this.tmp.set(e.x, 0, e.z);
+        f.fwd.lerp(this.tmp, Math.min(1, dt * 3)).normalize();
+        f.vel.copy(f.fwd).multiplyScalar(Math.max(speed, f.b.cruise));
+      }
+      ground = ctx.terrain.heightAt(f.pos.x, f.pos.z);
+      surface = ctx.water.heightAt(f.pos.x, f.pos.z);
     }
-    const s = ctx.water.heightAt(f.pos.x, f.pos.z) - 0.08;
-    if (f.pos.y > s) f.pos.y = s;
-    f.pos.z = clamp(f.pos.z, CONFIG.creatures.zMin, CONFIG.creatures.zMax);
+    // hard constraints: inside the water column (centred when it is thinner than the margins)
+    const g = ground + 0.18;
+    const s = surface - 0.08;
+    if (s < g) f.pos.y = (ground + surface) * 0.5;
+    else {
+      if (f.pos.y < g) {
+        f.pos.y = g;
+        if (f.vel.y < 0) f.vel.y *= -0.3;
+      }
+      if (f.pos.y > s) f.pos.y = s;
+    }
+    f.pos.z = clamp(f.pos.z, C.zMin, C.zMax);
     // turn bend for animation
     const yawRate = prevFwd.x * f.fwd.z - prevFwd.z * f.fwd.x;
     f.bend += (clamp(yawRate / Math.max(dt, 1e-3) * 0.25, -1, 1) - f.bend) * Math.min(1, dt * 6);

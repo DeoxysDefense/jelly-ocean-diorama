@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { rand } from '../util/math';
+import { CONFIG } from '../config';
 import type { App } from '../core/App';
 import { GroundMarker } from '../interaction/GroundMarker';
 import type { MiniGame, MiniGameManager } from './MiniGames';
@@ -85,7 +86,7 @@ export class OctopusHideSeekGame implements MiniGame {
     const o = this.octo.pos;
     const out: Spot[] = [];
     // fair play: from the front, the far back is lost in the blue haze, so keep within ~z > -6.5
-    const zMin = app.cam.isTop ? -11.5 : -6.5;
+    const zMin = app.cam.isTop ? CONFIG.world.zBack + 1.5 : CONFIG.world.zFront - 12.5;
     const ok = (p: THREE.Vector3) =>
       p.x > vis.min &&
       p.x < vis.max &&

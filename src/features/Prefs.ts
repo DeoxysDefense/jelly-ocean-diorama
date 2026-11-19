@@ -20,6 +20,10 @@ export interface PrefsData {
   mail: { on: boolean; freq: Frequency; nextIn: number; recent: string[] };
   events: { on: boolean; freq: Frequency; nextIn: number; last: string };
   coconut: { on: boolean; intervalMin: number; max: number; trees: TreeState[] };
+  /** V2 (P3) rare visitors: off / few / normal, and active seconds until the next can come. */
+  visitors: { mode: 'off' | 'few' | 'normal'; wait: number };
+  /** Ambient sound (off by default) and its volume 0..1. */
+  sound: { on: boolean; volume: number };
   magnifierZoom: number;
   bestSkips: number;
   hideSeekFound: number;
@@ -52,6 +56,9 @@ function defaults(): PrefsData {
     mail: { on: true, freq: 'normal', nextIn: randIn(MAIL_INTERVAL.normal), recent: [] },
     events: { on: true, freq: 'normal', nextIn: randIn(EVENT_INTERVAL.normal), last: '' },
     coconut: { on: true, intervalMin: 180, max: 4, trees: [{ ripe: 2, since: now }, { ripe: 1, since: now }] },
+    // a fresh install waits a little before the first visitor can come
+    visitors: { mode: 'normal', wait: 10 * 60 },
+    sound: { on: false, volume: 0.6 },
     magnifierZoom: 2,
     bestSkips: 0,
     hideSeekFound: 0,
@@ -97,9 +104,19 @@ export class Prefs {
       if (COCONUT_INTERVALS.includes(c.intervalMin)) d.coconut.intervalMin = c.intervalMin;
       if (Number.isFinite(c.max)) d.coconut.max = Math.max(3, Math.min(5, Math.round(c.max)));
       if (Array.isArray(c.trees))
-        c.trees.slice(0, d.coconut.trees.length).forEach((t, i) => {
+        // V2: more palms than the two v1 trees (the coconut system trims to the real count)
+        c.trees.slice(0, 16).forEach((t, i) => {
           if (t && Number.isFinite(t.ripe) && Number.isFinite(t.since)) d.coconut.trees[i] = { ripe: Math.max(0, Math.min(5, Math.round(t.ripe))), since: t.since };
         });
+    }
+    if (o.visitors) {
+      const v = o.visitors;
+      if (v.mode === 'off' || v.mode === 'few' || v.mode === 'normal') d.visitors.mode = v.mode;
+      if (Number.isFinite(v.wait)) d.visitors.wait = Math.max(0, Math.min(3 * 3600, v.wait));
+    }
+    if (o.sound) {
+      d.sound.on = o.sound.on === true;
+      if (Number.isFinite(o.sound.volume)) d.sound.volume = Math.max(0, Math.min(1, o.sound.volume));
     }
     if (Number.isFinite(o.magnifierZoom)) d.magnifierZoom = [1.5, 2, 3].includes(o.magnifierZoom!) ? o.magnifierZoom! : 2;
     if (Number.isFinite(o.bestSkips)) d.bestSkips = Math.max(0, Math.round(o.bestSkips!));

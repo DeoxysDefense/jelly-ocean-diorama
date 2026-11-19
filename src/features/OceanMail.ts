@@ -120,6 +120,7 @@ export class OceanMail {
   }
 
   private open() {
+    this.app.memory?.log('bottleOpen');
     const b = this.bottle!;
     b.state = 'open';
     const m = pickMessage(this.prefs.data.mail.recent);
@@ -185,7 +186,11 @@ export class OceanMail {
     const s = Math.max(0.001, b.fade);
     b.group.children[0].scale.setScalar(s);
     b.glass.opacity = 0.4 * s;
-    if (b.fade <= 0 || b.pos.x > vis.max + 2 || b.age > 900) this.remove();
+    if (b.fade <= 0 || b.pos.x > vis.max + 2 || b.age > 900) {
+      // a bottle nobody opened is still remembered: it drifted past
+      if (b.state === 'drift') this.app.memory?.log('bottlePassed');
+      this.remove();
+    }
   }
 
   /** Drops any bottle (world reset). The schedule continues. */

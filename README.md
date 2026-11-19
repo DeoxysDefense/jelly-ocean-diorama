@@ -2,7 +2,9 @@
 
 # Jelly Ocean Diorama
 
-**Version 1.1** — visible painted currents and bug fixes (see [Changelog](#changelog)).
+**Version 2.0** — the ocean grew into a small, bounded archipelago with
+three camera views (Focus, Full, Top), keeps an **Ocean Journal**, and is now and then visited by
+**rare visitors** you can sketch in a **Field Notebook** (see [Changelog](#changelog)).
 
 **Use it three ways:** as an interactive **desktop wallpaper** (Lively Wallpaper), as a
 **desktop app** that opens in its own window from a shortcut, or in any browser.
@@ -51,27 +53,144 @@ Open http://127.0.0.1:5173.
 | `npm run package:lively` | Single-file wallpaper build in `dist-lively/` + `JellyOcean-Lively.zip` |
 
 URL flags: `?mode=ambient` / `?mode=play`, `?wallpaper=1` (host mode, starts in Ambient),
-`?time=14.5` (fixed time of day), `?view=top`, `?panel=0` / `?panel=1`, `?tab=nature` — handy for
-screenshots and shared links (the README previews were captured with these).
+`?time=14.5` (fixed time of day), `?view=focus|full|top` (`front` = `focus`), `?x=-33` (Focus View
+pan), `?panel=0` / `?panel=1`, `?tab=nature` — handy for screenshots (the README previews were
+captured with these).
 
-## Two views, one 3D world
+## A small archipelago, three views, one 3D world
 
-Coordinates: **X** = left/right, **Y** = height, **Z** = depth into the ocean (front glass at
-z = 6, far side at z = −13). Terrain is a heightfield H(x, z) = H_base + H_sand and the water
-surface is a heightfield W(x, z, t), so every system works in real 3D.
+Coordinates: **X** = left/right (−51 … 51), **Y** = height, **Z** = depth into the ocean (front
+glass at z = 6, far side at z = −22.6). Terrain is a heightfield H(x, z) = H_base + H_sand and the
+water surface is a heightfield W(x, z, t), so every system works in real 3D.
 
-* **Front View** — the wallpaper composition: side cross-section with a slight downward tilt.
-  Tools that need a depth use the **Depth (Z)** slider (mouse wheel), shown as a ring on the
-  seabed at that depth.
-* **Top View** — press **V** (or the view button in the panel header): the camera rotates up
-  to look straight down onto the x–z plane. Clicks pick an exact X–Z spot; objects drag freely
-  in X and Z. Switching never rebuilds anything — sand, objects and creatures stay put.
+**The tray (V2 / P1).** The world is 1.7× wider and 1.5× deeper than v1 (about 2.5× the area) —
+more room to create, but still a bounded "fish tank" with rounded jelly edges on every side, not
+an endless map. From left to right:
+
+| Area | What is there |
+|---|---|
+| West | the shallow **lagoon**: a **sand cay** with beach grass, shrubs, two palms and a driftwood log, ringed by a wide **tidal flat** that dries at low tide (it uses the normal tide); a cluster of **dark boulders** on a rocky reef flat right beside it; a low **granite-boulder island** at the back (big rounded boulders, two stacked into a small tor, palms rooted in the beach sand). Nine **patch reefs** and about twenty **seagrass meadows** cover the lagoon floor, with loners (urchins, clams, starfish, mushroom corals) on the open sand |
+| Centre | the v1 diorama, unchanged: the main island with the hut and the two coconut palms, the reef, caves and meadows. Base terrain inside the v1 core (\|x\| < 23, z > −13) is exactly the same, so old saves land on the same ground |
+| East | a **reef drop-off**: the seabed comes down in three soft rocky ledges into **deep water** (about −10.4). A few small, muted 3D sea rods, black coral, sponges and boulders on the upper ledges, thinning out and darkening with depth; the deep floor is almost empty and a little mysterious. With the calm far-back strip this is about a third of the tray |
+| Back | a sparse row of tall silhouettes (sea fans, sea whips, pillar corals, rocks) along the far back of the whole tray, so Top / Full View aren't empty behind the reefs |
+
+**Habitats.** Creatures pick their next spot from a habitat map (`src/world/Habitat.ts`): main
+reef, lagoon patch reefs, seagrass, open lagoon, drop-off slope, deep water, open mid-water —
+each species from the habitats it likes, in its own part of the water column. The v1 residents
+keep their v1 home range (the Focus View is as lively as before), but blue tangs and
+butterflyfish now and then visit the lagoon reefs and come back, the silverside school sometimes
+crosses the whole tray, and the stingray glides out over the open sand instead of vanishing at
+the frame edge.
+
+**New residents** (Life → **Extra · new species**, each with its own slider):
+
+| Where | Species | Habits |
+|---|---|---|
+| Lagoon | Sergeant majors (school, 16) | over the patch reefs and meadows |
+| Lagoon | Parrotfish (3) | drift between all the reefs, low over the corals |
+| Lagoon | Moon wrasses (4) | busy, close to the bottom |
+| Lagoon | Lagoon crabs (3) | the sand around the cay; forage the waterline at low tide, never strand |
+| Lagoon | Cleaner shrimp (5) | sit beside the patch reefs, wave their antennae, hop; a poke = tail flip |
+| Lagoon | Sea urchins (5), sea cucumbers (3) | crawl slowly (urchins mostly at night) |
+| Lagoon + slope | Garden eels (10, two colonies) | stand out of the sand leaning into the current; duck when fish, the ray or the pointer come close |
+| Deep | Yellowtail snappers (school, 12) | along the drop-off |
+| Deep | Barracudas (6) | hang almost still in the open deep water |
+| Deep | Groupers (2) | heavy and patient, low by the ledges |
+
+Rarer, special animals (lantern fish, mantas, turtles …) are left for the P3 visitors.
+Creatures far outside the view think at a lower rate, so the extra life costs little.
+
+**Three views** (buttons at the bottom-left, the World tab, or keys):
+
+| View | What it is for | Controls |
+|---|---|---|
+| **Focus** (default, wallpaper default) | the v1 Front View scale and composition — a close, detailed slice | right / middle drag or **Space + drag** pans along the tray, **← →** keys, **double-click** centres a spot, click / drag on the **mini map**, optional **slow drift** |
+| **Full** (**F**) | the whole tray, like a resin model on a wooden base | look and normal clicks; **double-click** a spot to glide into Focus View there |
+| **Top** (**V**) | a map for editing | **wheel zooms** around the pointer (Shift + wheel = brush size), right / middle / Space drag pans, arrow keys; the X–Z editing tools work as before |
+
+* Opening the app in Focus View gives **the v1 Front View framing**: the front waterline, the far
+  horizon and the seabed strata sit exactly where they were. The deeper water uses a slightly
+  lower tilt (≈4.8° instead of 7.2°, the same trick v1 used when the world first got deeper), so
+  things in the middle of the tray — the hut, for example — sit about 1.5 % of the screen height
+  lower than in v1.
+* The **mini map** (bottom-left, Play mode only, can be hidden) shows land, shallows and deep
+  water and the current frame. It has no markers or counters on purpose.
+* **Slow drift** (off by default): when nobody has touched anything for a while, the Focus View
+  glides very slowly along the islands and back.
+* Tools that need a depth in Focus / Full View use the **Depth (Z)** slider (mouse wheel), shown
+  as a ring on the seabed at that depth. Switching views never rebuilds anything.
+* The camera view and pans are remembered between sessions. Lively gets **Camera view**
+  (Focus / Full / Top) and **Slow camera drift** properties.
+
+## Ocean Journal (V2 / P2)
+
+A small diary beside the panel — the book button in the panel header or the bottom-left dock, or
+**J**. Closed by default; nothing ever pops up, blinks or counts. New lines are simply there when
+you open it. Two pages, both bilingual:
+
+* **World Memory — what this sea has seen.** Written like a diary, grouped by day, one short line
+  each: *"傍晚，一只漂流瓶漂过，又悄悄漂走了。"* It remembers bottles you opened *and* the ones that
+  drifted past unopened, heavy rain, low tide drying the flats, coconuts that fell into the sea,
+  Ocean Surprises, a hermit crab moving house, the octopus inking, mini activities, the first
+  time you noticed a species (hover a creature for about a second, or click it), and a Reset.
+  Repeats of the same small thing in a day merge into one line ("几颗椰子…"). It is append-only:
+  **Undo never touches it, Reset World keeps it**, and it lives in its own storage
+  (`jelly-ocean-journal-v1`), not in the Save World slot. Past 300 lines the oldest days fold into
+  one-line summaries.
+* **My Ocean — what you made here.** Islands you stamped, sand dunes you piled up, corals, rocks,
+  shells and seagrass you placed, each with an automatic name from the moment it was made —
+  *"雨天下午诞生的小沙洲"*, *"a staghorn coral planted under the moon"* — and where it is. Click a name
+  to rename it (an empty name goes back to the automatic one). This list is **derived from the
+  world as it is now**, not from a log: undo a stamp and the island leaves the list, redo it and
+  it is back; erase a dune and it is gone; Reset empties it; loading a world shows that world's
+  things. Shells a hermit crab leaves behind are the crab's, not yours.
+* **Field Notebook — what you have seen with your own eyes** (V2 / P3, third tab). A page appears
+  the first time you watch a species (hover ≈ 1 s or click — residents and visitors alike) or see
+  a behaviour happen. Each page has a small pencil-and-wash sketch made from the live scene at
+  that moment, the name in both languages, two or three plain lines of natural history, and when
+  you first saw it. Pages are listed in the order you found them. **There is no total, no empty
+  slot, no silhouette and no "x / y"** — the book only knows what you have seen, never what you
+  haven't. Behaviours count only when they happen on screen, the window is visible and someone
+  used the mouse or keyboard in the last three minutes (so a wallpaper left alone does not fill
+  the book by itself): a hermit crab changing shells, the octopus inking or hiding in the sand, a
+  crab picking up food, garden eels ducking, a turtle coming up for air, a manta somersault,
+  dolphins leaping, a cuttlefish's passing colour bands, flying fish gliding. Sketches are small
+  JPEGs (240×180) kept with the journal, not in the Save World slot.
+
+## Rare visitors (V2 / P3)
+
+Every so often something passes through that does not live here. Visits are **predictable rather
+than random**: each visitor has habits, and the odds follow the time of day, the moon (the real
+one, from today's date) and the wind. They never come in a crowd — at most one at a
+time, with at least 20 minutes of *active* time between two visits — and nothing announces them.
+On a typical afternoon that is roughly one visitor an hour.
+
+| Visitor | When it tends to come | Stays | Where / what it does |
+| --- | --- | --- | --- |
+| Green sea turtle | any time, twice as likely 16:00–19:00 | 5–8 min | grazes the seagrass meadows, now and then rises for a breath |
+| Manta ray | only at night, more around the full moon | 4–6 min | slow loops over the deep east, sometimes a somersault |
+| Dolphins | by day; five times likelier in the half hour after strong wind | 2–3 min | a small pod crossing the back, leaping |
+| Whale shark | any time, the rarest (mean ≈ 7 h of active time) | 3–3.5 min | one slow pass along the deep far back |
+| Seahorse | by day | 20–40 min | holds on to a seagrass blade and shifts now and then |
+| Cuttlefish | mostly at dusk (17:00–20:00) | 4–6 min | hovers over the reef, dark bands flowing over its skin |
+| Moray eel | any time | 8–12 min | peeks out of a crevice between rocks, slowly "breathing" |
+| Flying fish | only when the wind is above 50 | 1–1.3 min | glide over the waves in short flights |
+
+* **You can't really miss one.** A visit you did not see is still written in World Memory
+  (*"傍晚，一只绿海龟来过。沙滩上留下了一串爪印。"*), and some leave a trace on a beach — turtle
+  tracks, a white cuttlebone — which fades over a few real hours (it survives a restart).
+  A visit you did watch is remembered as seen.
+* **World → Preferences → Rare visitors:** 关 Off / 少 Few (half as often) / 正常 Normal. Lively gets
+  a matching **Rare visitors** property. Reset World ends a visit in progress and clears traces;
+  World Memory keeps the lines, as with everything else.
+* Visitors are ordinary scene objects: residents give them room, you can hover and click them,
+  the Magnifier sees them. They are not saved with the world.
 
 ## Ocean life, discovery & mini games
 
 A peaceful ocean that rewards curiosity. Nothing new pops up, plays sounds or starts by itself.
 
-* **Deep world** — the real 3D world reaches from the front glass (z = 6) to z = −13. Water volume, seabed heightfield, wave simulation grid, creature roaming, object
+* **Deep world** (v1) — the real 3D world reaches from the front glass (z = 6) to z = −13 (V2: −22.6). Water volume, seabed heightfield, wave simulation grid, creature roaming, object
   placement, sand editing and picking all use the new range. Top View frames the whole depth;
   Front View keeps its composition (the front cut is unchanged, the camera tilt went from 9.5°
   to 7.2° so sky / sea / seabed proportions stay the same). The new back region is deliberately
@@ -85,7 +204,8 @@ A peaceful ocean that rewards curiosity. Nothing new pops up, plays sounds or st
 * **Magnifier** (Interact → Magnifier, key **8**) — a live 1.5× / 2× / 3× lens that follows the
   pointer; click to **pin** it (it keeps rendering live), click again to unpin. It is a real second
   render through a narrowed camera, so details are sharp and exactly under the pointer.
-* **Island Life — coconuts** (Nature → Island Life) — each palm grows coconuts on a real-time
+* **Island Life — coconuts** (Nature → Island Life) — each palm (V2: also the palms on the sand
+  cay and the granite island) grows coconuts on a real-time
   timer (30 m / 1 h / 2 h / **3 h** / 6 h, up to 3–5 per palm). Time passed while the wallpaper
   was closed counts (capped, no replayed animations). Click a ripe coconut to pick it or click a
   palm to shake it: coconuts fall, bounce and roll down the beach, splash, bob on the waves and
@@ -106,7 +226,13 @@ A peaceful ocean that rewards curiosity. Nothing new pops up, plays sounds or st
     ring → bubbles → a brief glimpse); the magnifier can be toggled in the game bar. Misses cost
     nothing. If the ocean has no octopus, one is borrowed for the game and returned after.
 * **Preferences** (World) — language 中文 / English (notes, game bar, island timer), Ocean Mail
-  on/off + frequency, Ocean Surprises on/off + frequency. Lively gets matching properties.
+  on/off + frequency, Ocean Surprises on/off + frequency, Rare visitors off / few / normal,
+  Ambient sound on/off + volume. Lively gets matching properties.
+* **Ambient sound** (off by default; the speaker button in the bottom-left dock or World →
+  Preferences) — a soft, white-noise-like soundscape synthesised in Web Audio, no audio files:
+  slow brown-noise swells that breathe with the waves, a hushed foam wash at each swell top, a
+  warm low underwater bed, the faint crackle of snapping shrimp, plus wind and rain when the
+  weather has them. It fades out and suspends whenever the ocean is paused or hidden.
 * **Input priority** — UI → active mini game → magnifier / bottle / coconuts → current tool →
   ambient hover. One press goes to exactly one layer, so a throw never also drags water or sand,
   and Hide & Seek turns off the creature tooltip (no spoilers).
@@ -116,9 +242,16 @@ A peaceful ocean that rewards curiosity. Nothing new pops up, plays sounds or st
 * Preferences and slow real-time state (language, mail / surprise settings and countdowns,
   coconut timestamps, personal bests) are saved automatically in `localStorage`
   (`jelly-ocean-v3`) — independent of the Save World slot, so timers survive restarts.
-* **Save World / Export** writes save schema **v3**: the sand grid stores its own bounds and the
-  V3 data under `extras`. **v2 saves still load**: their sand grid (z −6…6) is resampled by world
-  coordinates onto the deeper grid, so piles, islands and objects stay exactly where they were.
+* **Save World / Export** writes save schema **v5** (V2 / P2: adds the My Ocean records — where,
+  when and under what sky each island / dune was made — and birth data on placed objects; v4 and
+  older saves get their stamped islands recovered from the compacted sand, named "from before").
+  Since v4 the sand grid stores its own bounds, only the
+  box of cells that hold sand is written (the bigger tray doesn't bloat the save), and the V3 data
+  sits under `extras`. **v2 and v3 saves still load**: their sand grid is resampled by world
+  coordinates onto the archipelago grid. The V2 grid keeps v1's spacing and lines up with v1 rows
+  and columns exactly, so piles, islands and objects stay exactly where they were, unblurred.
+* Camera view, pans, slow drift and the mini map switch are stored with the basic settings
+  (`jelly-ocean-settings-v1`).
 * Temporary things (ripples, spray, an event in progress, a floating bottle, fallen coconuts,
   thrown stones) are never saved.
 
@@ -126,7 +259,8 @@ A peaceful ocean that rewards curiosity. Nothing new pops up, plays sounds or st
 
 In the browser console: `__jelly.mail.spawnTest()` (a bottle near the left edge),
 `__jelly.events.trigger('starfish' | 'school' | 'crabShell' | 'palmLeaf' | 'shellAshore')`,
-`__jelly.games.start('skip' | 'hide')`.
+`__jelly.games.start('skip' | 'hide')`, `__jelly.visitors.trigger('turtle' | 'manta' | 'dolphin' |
+'whaleShark' | 'seahorse' | 'cuttlefish' | 'moray' | 'flyingFish')`, `__jelly.visitors.stop()`, `__jelly.creatures.fish.predation.trigger('strike' | 'ambush')`.
 
 ## Living world
 
@@ -161,8 +295,19 @@ In the browser console: `__jelly.mail.spawnTest()` (a bottle near the left edge)
 
 ## Controls — Ocean Studio panel
 
-Right-side glass panel with three tabs (collapse with the arrow or **H**). Each tool shows
-only its own properties.
+**One place for every control** (top-right). Its top bar is always there: Full / Focus / Top
+view, slow drift, mini map, ambient sound, Ocean Journal, Undo / Redo and Settings (the gear opens
+World → Settings). The arrow (or **H**) folds the body below it — the Interact / Create / Life /
+Nature / World tabs — so a collapsed studio is just that small bar. The mini map sits bottom-left
+and the Ocean Journal opens on the left, so nothing covers the panel. Each tool shows only its
+own properties.
+
+**One language.** World → Settings → Language switches the *whole* interface (panel, hints,
+toasts, creature tooltips, journal, notes, games) between 中文 and English at once.
+
+**First visit.** The empty tray fills with water, the fish swim in from the edges, and four short
+cards show what you can do; then they fade away for good (Settings → *Show the welcome again*
+replays it). Wallpaper / ambient starts skip it.
 
 | Tab | Tool | Key | What it does |
 |---|---|---|---|
@@ -176,17 +321,31 @@ only its own properties.
 | Create | Sand → Island | 5 | Click to raise a small sand island: a flat beach top and a gently flaring underwater slope, like a real sand bar (compacted: it doesn't slump; erase or smooth it like other sand) |
 | Create | Objects | 6 | Drag corals, rocks, shells, seagrass; wheel while dragging = depth in Front View; invalid drops snap back |
 
-Creature reactions (Water tool click): octopus peeks out when gently disturbed, hides when
-disturbed repeatedly and only sometimes inks; jellyfish glow and pulse (they also glow softly
-when the pointer comes near); crabs raise claws and scuttle away; the stingray banks off; fish dart.
+**Meeting the creatures** (Water tool) — three gentle levels, always short, always back to normal:
+* *Rest the pointer* on a creature (≈ ⅓ s, once in a while per animal): curious reef fish (tangs,
+  butterflyfish, angelfish, parrotfish, wrasses, groupers) come closer and turn to look;
+  clownfish and sergeant majors dart at the pointer to defend their patch; crabs raise their claws
+  in a threat display; the octopus flushes a wave of colour; garden eels nearest to you duck one
+  after another; the stingray veers off; a moray slides back into its crevice; the turtle turns
+  its head toward you; a seahorse turns to face you.
+* *Click*: the fish around burst away and regroup (a school balls up for a moment); clownfish dive
+  into their anemone; a parrotfish crunches coral into a puff of white sand; crabs scuttle off —
+  or, under water, dig in until only their eyes show; hermit crabs hide in their shell; the octopus
+  peeks, hides or inks; the stingray darts off in a cloud of sand; urchins raise their spines and
+  sea cucumbers pull themselves short; shrimps tail-flip; a moray gapes, then retreats; a seahorse
+  curls up.
+* *Press and hold*: a fish stops and hovers in front of you; the octopus slowly reaches one arm
+  toward the pointer; a jellyfish can be guided gently along.
 
-**World tab:** water colour presets + custom, wind 0–100, Front / Top view, Play / Ambient,
+**World tab:** Play / Ambient, Settings (language, Ocean Mail, surprises, rare visitors, ambient
+sound, quality Auto / High / Battery saver, replay the welcome),
 **Save / Load World** (stored locally and restored automatically on the next start — added sand,
 islands and object placement; creatures re-initialise), Export / Import as a JSON file, and
 Reset (click twice).
 
-Shortcuts: **1–7** tools, **8** magnifier, **Esc** leaves a mini game / closes a note, **Ctrl+Z** undo, **Ctrl+Y / Ctrl+Shift+Z** redo, **V** view, **N** day/night, **[ ]** brush size,
-wheel = depth (Shift+wheel = size), **A** ambient, **H** panel, **Esc** back to Water.
+Shortcuts: **J** Ocean Journal, **1–7** tools, **8** magnifier, **Esc** leaves a mini game / closes a note, **Ctrl+Z** undo, **Ctrl+Y / Ctrl+Shift+Z** redo, **V** Focus ↔ Top, **F** Full ↔ Focus, **← → (↑ ↓)** pan,
+right / middle drag or **Space + drag** pan, double-click = centre there, **N** day/night, **[ ]** brush size,
+wheel = depth (Top View: zoom; Shift+wheel = size), **A** ambient, **H** panel, **Esc** back to Water.
 
 ## Architecture
 
@@ -196,7 +355,7 @@ src/
   config.ts                    all tunable parameters (world, water, sand, feed, creatures, perf)
   core/
     App.ts                     SceneManager: systems, main loop, FPS cap, adaptive resolution, reset/undo
-    CameraManager.ts           Front / Top dual view in one orthographic camera, animated switch, pointer→world
+    CameraManager.ts           Focus / Full / Top poses in one orthographic camera, eased transitions, pans, zoom, pointer→world
     RenderPipeline.ts          3-pass pipeline (scene → HDR target, composite + depth, water)
     EnvironmentController.ts   wind smoothing, water look transitions
   water/
@@ -210,6 +369,8 @@ src/
     FlowField.ts               painted currents sampled by creatures, particles and plant shaders
     SedimentSimulation.ts      pooled sand grains → sediment, dust feedback
     Island.ts                  hut, palms, shrubs, grass (procedural)
+    Archipelago.ts             V2 sand cay + tidal flat, boulder cluster, granite island, east drop-off (terrain + dressing)
+    Plinth.ts                  the wooden display base seen in Full View
     Reef.ts / coralFactory.ts  reef props, selectable registry, obstacles, hiding spots
     Sky.ts, Lighting.ts, Particles.ts (bubbles, marine snow)
   creatures/
@@ -220,6 +381,11 @@ src/
   interaction/
     ToolStateManager.ts, InteractionManager.ts, SelectionManager.ts, HistoryManager.ts, GroundMarker.ts
   ui/        UIController.ts, icons.ts, styles.css   (lightweight DOM, no framework)
+  features/  V3 / V2 feature modules (… CameraNav.ts pan / zoom / drift, MiniMap.ts views dock + map,
+             OceanJournal.ts diary UI, WorldMemory.ts, Creations.ts, RareVisitors.ts scheduling + traces,
+             FieldNotebook.ts observation + sketches; creatures/Visitors.ts the eight visitors)
+  content/   messages.ts (Ocean Mail), journal.ts (bilingual diary lines and automatic names),
+             notebook.ts (bilingual Field Notebook pages)
   platform/  WallpaperAdapter.ts (Lively / Wallpaper Engine), Settings.ts, WorldStore.ts (save / load / export)
 ```
 
@@ -237,9 +403,12 @@ Transparent water is the classic sorting problem, so the water is not alpha-blen
    the surface height with falloff, so the block wobbles like jelly.
 
 ### Physics
-* **Water:** 256×24 heightfield, damped wave equation with spring restoring force, reflective
-  walls at the slab edges and around the island, soft amplitude clamp (no tearing). Analytic wind
-  waves are added on top; phases are integrated so wind changes never jump.
+* **Water:** 435×123 heightfield (v1 cell size), damped wave equation with spring restoring force,
+  reflective walls at the slab edges and around islands, soft amplitude clamp (no tearing).
+  Analytic wind waves are added on top; phases are integrated so wind changes never jump.
+  V2: the grid is split into 16×16 tiles; only tiles in or near the view that actually move are
+  simulated (calm tiles sleep, a disturbance or an active neighbour wakes them), so the cost
+  follows what you see, not the size of the tray.
 * **Sand:** particles (gravity, water drag to terminal velocity, turbulent dispersion, sphere
   collisions with rocks/corals) settle into a sediment height grid; an angle-of-repose pass
   makes steep piles slump. Base terrain is a separate, indestructible array.
@@ -261,15 +430,47 @@ Transparent water is the classic sorting problem, so the water is not alpha-blen
   sand lands or objects move nearby.
 * **Octopus:** hidden in den / coral → peek → crawl ↔ explore → buried in sand (camouflage);
   retreats with an ink puff when disturbed, and relocates when its coral is moved.
+* **Predators and prey** (gentle, mostly failing — as in the sea):
+  * *Barracuda strike* — every few minutes (more often at dusk and dawn) a barracuda leaves its
+    group, cruises up to a school (silversides, cardinals, sergeant majors or snappers, preferring
+    one in view), stalks it while the school balls up and slows down, then dashes straight
+    through; the school bursts apart around it ("flash expansion") and regroups.
+  * *Grouper ambush* — a grouper settles beside a rock or coral head and waits almost motionless;
+    when a small fish passes in front at its depth it lunges, the suction lifts a puff of sand and
+    the fish around scatter.
+  * About 1 strike in 5 and 1 lunge in 4 catches something. The fish is simply gone; a newcomer
+    joins the population a minute or two later, so counts always return to the Life settings.
+  * Both are Field Notebook behaviours (when someone is watching).
+* **Shallow water:** when the sea level or tide drops (or an island is raised), fish, the
+  stingray and rare visitors head for deeper water instead of being pressed into the sand or
+  left on dry land.
 
 ### Performance
 * Instanced fish, food and sand; pooled particles with hard caps (food 90, sand 1800, bubbles 260).
 * Hut geometry is static-batched (one draw call per material).
-* FPS cap (60 active, 30 ambient), adaptive pixel ratio (0.6–1.5) driven by measured frame
-  time, lower resolution & reduced particles in Ambient, shadow map refreshed every 3rd frame in
-  Ambient, rendering fully stops when the page is hidden or the wallpaper host pauses it.
+* **Even frame pacing:** the display's real refresh rate is measured and frames are drawn on an
+  exact multiple of it (60 fps on a 120 Hz screen = every 2nd refresh, 30 fps in Ambient = every
+  4th), so motion stays smooth instead of alternating 16.7 / 25 ms frames.
+* **Automatic quality** (Settings → Quality: Auto) counts frames that miss their slot rather than
+  averaging frame times (which hides judder). Too many misses → one step down a ladder that cuts
+  anti-aliasing and shadow refreshes *before* it touches resolution (and never below 0.75 pixel
+  ratio); steps back up only after a long clean stretch, waiting longer and longer after a failed
+  try, so quality never bounces. *High* keeps full quality; *Battery saver* stays low. Ambient no
+  longer lowers the resolution — it just draws 30 fps. The last good level is remembered.
+* **F9** (or `?perf=1`) shows a small readout: fps, refresh rate, frame / simulation time, quality
+  level, pixel ratio and missed frames — handy to check smoothness on a real machine.
+* Rendering fully stops when the page is hidden or the wallpaper host pauses it.
+* On laptops with two GPUs, Windows may run the browser on the integrated one: Settings → System
+  → Display → Graphics → set Microsoft Edge / Lively to *High performance*.
 * Measured on the development machine at 1280×720: ~1.7 ms CPU simulation + ~5.5 ms render per
-  frame. Numbers vary by GPU; treat them as indicative, not a guarantee.
+  frame (v1). V2 / P1, Focus View, production build, same machine and browser: CPU step
+  2.02 ms (v1) → 2.37 ms (V2, +17 %). Numbers vary by GPU; treat them as indicative.
+* V2: the sun's shadow map follows the part of the tray in view (v1 sharpness in Focus View);
+  particles, plankton and rain live in the view window; sand relaxation only sweeps the edited area.
+* V2 / P3: a visitor adds well under 1 ms of CPU per frame (whale shark, the biggest: +0.2–0.5 ms
+  median in headless Edge). Only the visitor in the water exists; its mesh is built on first use.
+  A notebook sketch is one extra 240×180 render the first time something is observed; its buffers
+  are released a few seconds later.
 
 ## Desktop app (shortcut, Windows)
 
@@ -295,9 +496,9 @@ timers live in that browser's local storage (separate from the Lively wallpaper'
    ```
 3. In Lively: **+ Add Wallpaper** → choose `JellyOcean-Lively.zip` (or the
    `dist-lively/index.html` file).
-4. Customise via Lively's wallpaper settings (gear icon): Play mode, wind, time of day, rain,
+4. Customise via Lively's wallpaper settings (gear icon): Play mode, camera view, slow camera drift, wind, time of day, rain,
    tide, water colour, custom colour, language, Ocean Mail, Ocean Surprises (+ frequency),
-   quality and Reset world — defined in `lively/LivelyProperties.json`.
+   Rare visitors, ambient sound (+ volume), quality and Reset world — defined in `lively/LivelyProperties.json`.
 5. For interaction, enable **Lively Settings → Wallpaper → Input → Mouse** ("Wallpaper Input").
    Lively only forwards the mouse when the pointer is over empty desktop, and drags are not
    guaranteed, so wallpaper sessions start in **Ambient** mode (hover ripples + gentle click
@@ -340,6 +541,61 @@ User settings (water look, wind, mode, panel state) persist in `localStorage`.
 
 ## Changelog
 
+**2.0 — one control system, one language, smoother**
+- The studio's top bar holds every everyday control (views, drift, map, sound, journal, undo,
+  settings) and folds the rest away; the journal opens on the left; the mini map stays alone.
+- One language switch for the whole interface (the panel used to mix Chinese and English).
+- A first-visit welcome: the tray fills, the fish arrive, four short cards, then it is gone.
+- Creatures notice a resting pointer, react to clicks in their own way, and respond to press-and-hold.
+- Smoother: frame pacing locked to the display's refresh rate, a quality ladder that cuts effects
+  before resolution and does not bounce, no resolution drop in Ambient, fewer per-frame
+  allocations; F9 performance readout.
+
+**2.0 — predators, ambient sound, fixes**
+- Barracuda strikes on schools and grouper ambushes beside rocks; most fail, and caught fish are
+  replaced by newcomers a minute or two later.
+- Optional ambient sound (waves, foam, underwater hum, reef crackle, wind, rain), synthesised.
+- Remodelled rare visitors: green turtle (scutes, scaled head and flippers), seahorse (bony
+  rings, coronet, rippling dorsal fin) and moray eel (fin fold, hinged jaw with teeth, spotted or
+  green). Their textures are painted over a few frames, so a first arrival never stutters.
+- Fix: the small islands' palms (and beach shrubs / grass) no longer bend with painted water
+  currents when the tide is high.
+- Fix: fish, the stingray and visitors no longer end up in the sand or on dry land when the
+  sea level drops.
+
+**2.0 — P3: rare visitors & the Field Notebook**
+- Eight rare visitors (green turtle, manta ray, dolphins, whale shark, seahorse, cuttlefish, moray
+  eel, flying fish) with habits tied to the hour, the real moon, wind and dusk; one at a time, at
+  least 20 active minutes apart; Off / Few / Normal in Preferences and Lively.
+- Unseen visits are remembered in World Memory, some with a fading beach trace (turtle tracks,
+  cuttlebone) that survives a restart.
+- Field Notebook tab: a sketch page for each species and behaviour you have actually watched, in
+  discovery order, with no totals or blanks.
+
+**2.0 — P2: the Ocean Journal**
+- World Memory (append-only diary of what the sea has seen; survives Undo and Reset, own storage,
+  day merging, 300-line cap with summaries) and My Ocean (what you made, derived from the live
+  world; automatic names from time, weather and wind; click to rename).
+- Save schema v5; older saves recover their stamped islands.
+- Fix: a hermit crab no longer chases the shell it just left (it used to swap back and forth),
+  and the shells crabs leave behind are no longer treated as freshly placed.
+
+**2.0 — P1: the archipelago**
+- The tray is 1.7× wider and 1.5× deeper: a shallow western lagoon (sand cay with a tidal flat,
+  a boulder cluster, a granite-boulder island, patch reefs and seagrass meadows) and a deep east.
+  Bounded, with rounded jelly edges all round.
+- Six new reef species: pillar coral, mushroom coral, barrel sponge, sea whips, sea urchin and giant clam.
+- A reef drop-off in the east (soft rocky ledges; sparse, muted sea rods, black coral, sponges and
+  boulders that thin out with depth), a back row of tall silhouettes, more seagrass around the
+  western islands.
+- Habitat-based movement and eleven new residents (Life → Extra): sergeant majors, parrotfish,
+  moon wrasses, lagoon crabs, cleaner shrimp, sea urchins, sea cucumbers, garden eels, yellowtail
+  snappers, barracudas, groupers. The new palms grow and drop coconuts too.
+- Three camera views — Focus (v1 framing, pans), Full (the whole tray on a wooden base), Top (zoom
+  + pan) — with eased transitions, double-click focus, arrow keys, a mini map and optional slow drift.
+- Save schema v4 (cropped sand grid); v2 / v3 saves migrate without moving anything.
+- Water simulation sleeps calm tiles and only runs around the view; shadows follow the view.
+
 **1.1**
 - Current Brush: painted currents are now visible as flowing streaks, and seagrass bends along
   the whole stroke (not only under the cursor); the brush releases bigger bubbles.
@@ -367,8 +623,23 @@ User settings (water look, wind, mode, panel state) persist in `localStorage`.
   lost in the water haze from that angle; Top View uses the whole depth.
 - From the default Front View the fronds cover some coconuts, so clicking the palm (shake) is the
   dependable way to harvest; clicking a visible coconut picks just that one.
-- No sounds were added (the spec asks for no intrusive sounds; an ambient audio layer is still
-  open).
+- The only sound is the optional ambient layer (off by default); interactions stay silent.
+
+**V2 / P3**
+- Visitor timing counts *active* time (like Ocean Mail), so a wallpaper that is paused most of
+  the day sees fewer visitors.
+- Notebook sketches are taken from the live scene, so something half hidden behind coral is
+  sketched half hidden. The first sketch is kept (later sightings don't redraw it).
+- The visitors' GPU cost was only measured with software rendering; not yet checked on a real
+  GPU or inside Lively.
+
+**V2 / P1**
+- The new residents are not yet in the save's creature animation state (like v1: positions
+  re-initialise on load); their counts are saved with the world.
+- Off-screen water goes calm (ripples are only simulated in and near the view).
+- Some v1 helpers still assume the home frame: Ocean Surprise schools mill around the central
+  reef, and population arrivals enter at the edge of the v1 frame (visible in Full View).
+- `scripts/demo/director.js` (demo video) still uses v1 camera positions.
 
 **Core**
 

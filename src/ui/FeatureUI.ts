@@ -2,11 +2,12 @@ import type { App } from '../core/App';
 import { COCONUT_INTERVALS, MAIL_INTERVAL, type Frequency, type Lang } from '../features/Prefs';
 import { formatDuration } from '../features/CoconutGrowth';
 import type { OceanMessage } from '../content/messages';
+import { L, T, TA } from './lang';
 
-const FREQ: { id: Frequency; label: string }[] = [
-  { id: 'rare', label: 'Rare' },
-  { id: 'normal', label: 'Normal' },
-  { id: 'often', label: 'Often' },
+const FREQ: { id: Frequency; en: string; zh: string }[] = [
+  { id: 'rare', en: 'Rare', zh: '少' },
+  { id: 'normal', en: 'Normal', zh: '正常' },
+  { id: 'often', en: 'Often', zh: '多' },
 ];
 
 const CAT_ICON: Record<OceanMessage['cat'], string> = {
@@ -28,14 +29,14 @@ export class FeatureUI {
     const interact = root.querySelector('[data-page="interact"]')!;
     interact.insertAdjacentHTML(
       'beforeend',
-      `<div class="segmented three mag-sub" role="group" aria-label="Magnifier zoom">
+      `<div class="segmented three mag-sub" role="group" ${TA('Magnifier zoom', '放大倍数')}>
          <button data-zoom="1.5">1.5×</button><button data-zoom="2">2×</button><button data-zoom="3">3×</button>
        </div>
        <details class="fold mini">
-         <summary><span>Mini Activities</span><small class="mini-best"></small></summary>
+         <summary>${T('Mini Activities', '小活动')}<small class="mini-best"></small></summary>
          <div class="row">
-           <button class="btn" data-game="skip">Stone Skipping</button>
-           <button class="btn" data-game="hide">Octopus Hide &amp; Seek</button>
+           <button class="btn" data-game="skip">${T('Stone Skipping', '打水漂')}</button>
+           <button class="btn" data-game="hide">${T('Octopus Hide & Seek', '和章鱼捉迷藏')}</button>
          </div>
        </details>`,
     );
@@ -43,11 +44,11 @@ export class FeatureUI {
     nature.insertAdjacentHTML(
       'beforeend',
       `<details class="fold island-life">
-         <summary><span>Island Life</span><small class="coco-next"></small></summary>
-         <label class="switch"><input type="checkbox" data-coco="on"><span>Coconut growth</span></label>
-         <div class="field-label gap"><span>Growth interval</span></div>
-         <div class="segmented five-s coco-int">${COCONUT_INTERVALS.map((m) => `<button data-interval="${m}">${m < 60 ? `${m}m` : `${m / 60}h`}</button>`).join('')}</div>
-         <div class="field-label gap"><span>Max per palm</span></div>
+         <summary>${T('Island Life', '小岛生活')}<small class="coco-next"></small></summary>
+         <label class="switch"><input type="checkbox" data-coco="on">${T('Coconut growth', '椰子生长')}</label>
+         <div class="field-label gap">${T('Growth interval', '生长间隔')}</div>
+         <div class="segmented five-s coco-int">${COCONUT_INTERVALS.map((m) => `<button data-interval="${m}">${m < 60 ? T(`${m}m`, `${m}分`) : T(`${m / 60}h`, `${m / 60}时`)}</button>`).join('')}</div>
+         <div class="field-label gap">${T('Max per palm', '每棵最多')}</div>
          <div class="segmented three coco-max"><button data-max="3">3</button><button data-max="4">4</button><button data-max="5">5</button></div>
          <p class="hint small coco-info"></p>
        </details>`,
@@ -56,14 +57,21 @@ export class FeatureUI {
     world.insertAdjacentHTML(
       'beforeend',
       `<details class="fold prefs">
-         <summary><span>Preferences</span><small class="lang-now"></small></summary>
-         <div class="field-label"><span>Language · 语言</span></div>
+         <summary>${T('Settings', '设置')}<small class="lang-now"></small></summary>
+         <div class="field-label">${T('Language', '语言')}</div>
          <div class="segmented lang-seg"><button data-lang="zh">中文</button><button data-lang="en">English</button></div>
-         <div class="pref-row"><label class="switch"><input type="checkbox" data-pref="mail"><span>Ocean Mail</span></label></div>
-         <div class="segmented three" data-freq-group="mail">${FREQ.map((f) => `<button data-freq="${f.id}">${f.label}</button>`).join('')}</div>
-         <div class="pref-row"><label class="switch"><input type="checkbox" data-pref="events"><span>Ocean Surprises</span></label></div>
-         <div class="segmented three" data-freq-group="events">${FREQ.map((f) => `<button data-freq="${f.id}">${f.label}</button>`).join('')}</div>
-         <p class="hint small">Bottles and surprises are rare and quiet: no popups, no sounds. They wait while you edit or play.</p>
+         <div class="pref-row"><label class="switch"><input type="checkbox" data-pref="mail">${T('Ocean Mail', '漂流瓶')}</label></div>
+         <div class="segmented three" data-freq-group="mail">${FREQ.map((f) => `<button data-freq="${f.id}">${T(f.en, f.zh)}</button>`).join('')}</div>
+         <div class="pref-row"><label class="switch"><input type="checkbox" data-pref="events">${T('Ocean Surprises', '海洋小惊喜')}</label></div>
+         <div class="segmented three" data-freq-group="events">${FREQ.map((f) => `<button data-freq="${f.id}">${T(f.en, f.zh)}</button>`).join('')}</div>
+         <div class="field-label">${T('Rare visitors', '稀有访客')}</div>
+         <div class="segmented three" data-visitors>${['off', 'few', 'normal'].map((m) => `<button data-vmode="${m}"></button>`).join('')}</div>
+         <div class="pref-row"><label class="switch"><input type="checkbox" data-sound="on">${T('Ambient sound', '环境声')}</label></div>
+         <div class="sound-vol"><input class="range" type="range" min="0" max="100" step="1" data-sound="vol" ${TA('Sound volume', '音量')}></div>
+         <div class="field-label">${T('Quality', '画质')}</div>
+         <div class="segmented three" data-quality-group><button data-quality="auto">${T('Auto', '自动')}</button><button data-quality="high">${T('High', '高')}</button><button data-quality="low">${T('Battery saver', '省电')}</button></div>
+         <div class="row"><button class="btn" data-intro>${T('Show the welcome again', '重新播放欢迎引导')}</button></div>
+         <p class="hint small">${T('Bottles and surprises are rare and quiet: no popups, no sounds. They wait while you edit or play.', '漂流瓶和小惊喜都很少、很安静：不会弹窗，也没有提示音。你在编辑或玩的时候，它们会等一等。')}</p>
        </details>`,
     );
     // Ocean Mail note
@@ -110,7 +118,30 @@ export class FeatureUI {
     this.all<HTMLButtonElement>('[data-interval]').forEach((b) => b.addEventListener('click', () => app.coconuts.setInterval(Number(b.dataset.interval))));
     this.all<HTMLButtonElement>('[data-max]').forEach((b) => b.addEventListener('click', () => app.coconuts.setMax(Number(b.dataset.max))));
     this.all<HTMLButtonElement>('[data-lang]').forEach((b) => b.addEventListener('click', () => this.setLang(b.dataset.lang as Lang)));
+    this.all<HTMLButtonElement>('[data-vmode]').forEach((b) =>
+      b.addEventListener('click', () => {
+        app.visitors.setMode(b.dataset.vmode as 'off' | 'few' | 'normal');
+        this.refresh();
+      }),
+    );
+    this.q<HTMLInputElement>('[data-sound="on"]').addEventListener('change', (e) => {
+      app.sound.setOn((e.target as HTMLInputElement).checked);
+      app.minimap?.refresh();
+      this.refresh();
+    });
+    this.q<HTMLInputElement>('[data-sound="vol"]').addEventListener('input', (e) => {
+      const el = e.target as HTMLInputElement;
+      el.style.setProperty('--fill', `${el.value}%`);
+      app.sound.setVolume(Number(el.value) / 100);
+    });
     this.all<HTMLButtonElement>('[data-nlang]').forEach((b) => b.addEventListener('click', () => this.setLang(b.dataset.nlang as Lang)));
+    this.all<HTMLButtonElement>('[data-quality]').forEach((b) =>
+      b.addEventListener('click', () => {
+        app.setQuality(b.dataset.quality as 'auto' | 'high' | 'low');
+        this.refresh();
+      }),
+    );
+    this.q<HTMLButtonElement>('[data-intro]').addEventListener('click', () => app.intro?.play(true));
     this.all<HTMLInputElement>('[data-pref]').forEach((c) =>
       c.addEventListener('change', () => {
         const k = c.dataset.pref as 'mail' | 'events';
@@ -188,7 +219,7 @@ export class FeatureUI {
     const i = app.i18n;
     const next = !app.prefs.data.coconut.on ? i.t('island.off') : ms === null ? i.t('island.full') : `${i.t('island.next')} ${formatDuration(ms)}`;
     this.q<HTMLElement>('.coco-next').textContent = next;
-    this.q<HTMLElement>('.coco-info').textContent = `${ripe} ${i.t('island.ripe')} · ${next}. Click a ripe coconut to pick it, or click a palm to shake it.`;
+    this.q<HTMLElement>('.coco-info').textContent = `${ripe} ${i.t('island.ripe')} · ${next}. ${L('Click a ripe coconut to pick it, or click a palm to shake it.', '点熟了的椰子可以摘下来，点椰子树可以摇一摇。')}`;
   }
 
   refresh() {
@@ -196,8 +227,19 @@ export class FeatureUI {
     const P = app.prefs.data;
     this.q<HTMLElement>('.mag-sub').classList.toggle('open', app.tools.tool === 'magnify');
     this.all<HTMLButtonElement>('[data-zoom]').forEach((b) => b.classList.toggle('active', Number(b.dataset.zoom) === P.magnifierZoom));
+    const vLabels: Record<string, [string, string]> = { off: ['关', 'Off'], few: ['少', 'Few'], normal: ['正常', 'Normal'] };
+    this.all<HTMLButtonElement>('[data-vmode]').forEach((b) => {
+      b.textContent = vLabels[b.dataset.vmode!][P.lang === 'zh' ? 0 : 1];
+      b.classList.toggle('active', P.visitors.mode === b.dataset.vmode);
+    });
+    this.q<HTMLInputElement>('[data-sound="on"]').checked = P.sound.on;
+    const vol = this.q<HTMLInputElement>('[data-sound="vol"]');
+    vol.value = String(Math.round(P.sound.volume * 100));
+    vol.style.setProperty('--fill', `${vol.value}%`);
+    this.q<HTMLElement>('.sound-vol').classList.toggle('dim', !P.sound.on);
     this.all<HTMLButtonElement>('[data-game]').forEach((b) => b.classList.toggle('active', app.games.active?.id === b.dataset.game));
-    this.q<HTMLElement>('.mini-best').textContent = P.bestSkips ? `best ${P.bestSkips} skips` : '';
+    this.q<HTMLElement>('.mini-best').textContent = P.bestSkips ? L(`best ${P.bestSkips} skips`, `最佳 ${P.bestSkips} 次`) : '';
+    this.all<HTMLButtonElement>('[data-quality]').forEach((b) => b.classList.toggle('active', b.dataset.quality === app.qualitySetting));
     this.q<HTMLInputElement>('[data-coco="on"]').checked = P.coconut.on;
     this.all<HTMLButtonElement>('[data-interval]').forEach((b) => b.classList.toggle('active', Number(b.dataset.interval) === P.coconut.intervalMin));
     this.all<HTMLButtonElement>('[data-max]').forEach((b) => b.classList.toggle('active', Number(b.dataset.max) === P.coconut.max));
